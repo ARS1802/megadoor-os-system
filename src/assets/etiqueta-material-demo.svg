@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 560" role="img" aria-labelledby="title description">
+  <title id="title">Etiqueta demonstrativa do material Adesivo Branco</title>
+  <desc id="description">Etiqueta branca e dourada com nome, marca e dimensões do rolo</desc>
+  <rect width="900" height="560" fill="#f1f3f5"/>
+  <rect x="80" y="60" width="740" height="440" rx="18" fill="#fff" stroke="#b7bdc7" stroke-width="4"/>
+  <path d="M80 78a18 18 0 0 1 18-18h704a18 18 0 0 1 18 18v78H80z" fill="#e6c13c"/>
+  <text x="124" y="124" fill="#202124" font-family="Arial, sans-serif" font-size="44" font-weight="700">MEGAPAPER</text>
+  <text x="124" y="230" fill="#202124" font-family="Arial, sans-serif" font-size="48" font-weight="700">Adesivo Branco</text>
+  <text x="124" y="294" fill="#5f6368" font-family="Arial, sans-serif" font-size="30">Rolo para impressão</text>
+  <line x1="124" y1="336" x2="776" y2="336" stroke="#b7bdc7" stroke-width="3"/>
+  <text x="124" y="400" fill="#202124" font-family="Arial, sans-serif" font-size="30" font-weight="700">Largura</text>
+  <text x="330" y="400" fill="#202124" font-family="Arial, sans-serif" font-size="30">106 cm</text>
+  <text x="124" y="454" fill="#202124" font-family="Arial, sans-serif" font-size="30" font-weight="700">Comprimento</text>
+  <text x="330" y="454" fill="#202124" font-family="Arial, sans-serif" font-size="30">50.000 m</text>
+</svg>

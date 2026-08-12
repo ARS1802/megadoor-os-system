@@ -1,0 +1,256 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function autenticado() {
+      return request.auth != null;
+    }
+
+    function perfil() {
+      return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data;
+    }
+
+    function usuarioAtivo() {
+      return autenticado() && perfil().ativo == true;
+    }
+
+    function possuiCargo(cargos) {
+      return usuarioAtivo() && perfil().cargo in cargos;
+    }
+
+    function podeCriarCadastrosEOrdens() {
+      return possuiCargo(['ADMIN', 'DESIGNER']);
+    }
+
+    function podeOperarMaquina() {
+      return possuiCargo(['ADMIN', 'DESIGNER', 'MAQUINISTA']);
+    }
+
+    function processoConcluidoAposAOperacao(ordemId, processoId) {
+      let processo = getAfter(
+        /databases/$(database)/documents/ordens-de-servico/$(ordemId)/processos/$(processoId)
+      ).data;
+      return processo.unidadesProduzidas is int &&
+        processo.metaDeUnidades is int &&
+        processo.unidadesProduzidas >= processo.metaDeUnidades;
+    }
+
+    function todosOsProcessosConcluidosAposAOperacao(ordemId) {
+      let tipos = resource.data.tiposDeProcessos;
+      return tipos is list &&
+        tipos.size() >= 1 &&
+        tipos.hasOnly(['IMPRESSAO', 'PLOTAGEM', 'CORTE']) &&
+        (!('IMPRESSAO' in tipos) || processoConcluidoAposAOperacao(ordemId, 'impressao')) &&
+        (!('PLOTAGEM' in tipos) || processoConcluidoAposAOperacao(ordemId, 'plotagem')) &&
+        (!('CORTE' in tipos) || processoConcluidoAposAOperacao(ordemId, 'corte'));
+    }
+
+    function dadosDaConclusaoNormalSaoValidos() {
+      let dados = request.resource.data.dadosDeConclusao;
+      return dados is map &&
+        dados.keys().hasAll([
+          'concluidaEm',
+          'referenciaUsuarioResponsavel',
+          'foiForcada'
+        ]) &&
+        dados.keys().hasOnly([
+          'concluidaEm',
+          'referenciaUsuarioResponsavel',
+          'foiForcada'
+        ]) &&
+        dados.foiForcada == false &&
+        dados.referenciaUsuarioResponsavel ==
+          /databases/$(database)/documents/usuarios/$(request.auth.uid);
+    }
+
+    function dadosDaConclusaoForcadaSaoValidos() {
+      let dados = request.resource.data.dadosDeConclusao;
+      return dados is map &&
+        dados.keys().hasAll([
+          'concluidaEm',
+          'referenciaUsuarioResponsavel',
+          'foiForcada',
+          'justificativa'
+        ]) &&
+        dados.keys().hasOnly([
+          'concluidaEm',
+          'referenciaUsuarioResponsavel',
+          'foiForcada',
+          'justificativa'
+        ]) &&
+        dados.foiForcada == true &&
+        dados.justificativa is string &&
+        dados.justificativa.size() > 0 &&
+        dados.referenciaUsuarioResponsavel ==
+          /databases/$(database)/documents/usuarios/$(request.auth.uid);
+    }
+
+    function podeRegistrarOrdemEmProducao() {
+      return podeOperarMaquina() &&
+        resource.data.status != 'CONCLUIDA' &&
+        request.resource.data.status == 'EM_PRODUCAO' &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status',
+          'ultimaAtividadeEm',
+          'atualizadaEm'
+        ]);
+    }
+
+    function podeRegistrarConclusaoNormal(ordemId) {
+      return podeOperarMaquina() &&
+        resource.data.status != 'CONCLUIDA' &&
+        request.resource.data.status == 'CONCLUIDA' &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status',
+          'ultimaAtividadeEm',
+          'dadosDeConclusao',
+          'metragemQuadradaCalculada',
+          'quantidadeRolosCalculada',
+          'atualizadaEm'
+        ]) &&
+        dadosDaConclusaoNormalSaoValidos() &&
+        todosOsProcessosConcluidosAposAOperacao(ordemId);
+    }
+
+    function podeRegistrarConclusaoForcada() {
+      return possuiCargo(['ADMIN']) &&
+        resource.data.status in ['EM_PRODUCAO', 'PARADA'] &&
+        request.resource.data.status == 'CONCLUIDA' &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status',
+          'dadosDeConclusao',
+          'metragemQuadradaCalculada',
+          'quantidadeRolosCalculada',
+          'atualizadaEm'
+        ]) &&
+        dadosDaConclusaoForcadaSaoValidos();
+    }
+
+    function podeMarcarOrdemComoParada() {
+      return usuarioAtivo() &&
+        resource.data.status == 'EM_PRODUCAO' &&
+        request.resource.data.status == 'PARADA' &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'atualizadaEm']);
+    }
+
+    function extensaoDoArquivoEValida(processoId, extensao) {
+      return extensao is string && (
+        (processoId == 'impressao' && extensao in ['.pdf', '.jpg', '.jpeg', '.png']) ||
+        (processoId in ['plotagem', 'corte'] && extensao in ['.plt', '.pdf'])
+      );
+    }
+
+    function arquivoDoProcessoEValido(ordemId, processoId) {
+      let arquivo = request.resource.data.arquivo;
+      return arquivo is map &&
+        arquivo.keys().hasAll([
+          'nomeOriginal',
+          'extensao',
+          'tamanhoEmBytes',
+          'caminhoNoServidor',
+          'modificadoEm'
+        ]) &&
+        arquivo.keys().hasOnly([
+          'nomeOriginal',
+          'extensao',
+          'tamanhoEmBytes',
+          'caminhoNoServidor',
+          'modificadoEm'
+        ]) &&
+        arquivo.nomeOriginal is string &&
+        arquivo.nomeOriginal.size() > 0 &&
+        arquivo.nomeOriginal.matches('^[^/]+$') &&
+        extensaoDoArquivoEValida(processoId, arquivo.extensao) &&
+        arquivo.tamanhoEmBytes is int &&
+        arquivo.tamanhoEmBytes >= 0 &&
+        arquivo.caminhoNoServidor is string &&
+        arquivo.caminhoNoServidor.matches(
+          '^ordens-de-servico/' + ordemId + '/' + processoId + '/[^/]+$'
+        ) &&
+        arquivo.modificadoEm is timestamp;
+    }
+
+    function podeSubstituirArquivoDoProcesso(ordemId, processoId) {
+      return podeCriarCadastrosEOrdens() &&
+        get(/databases/$(database)/documents/ordens-de-servico/$(ordemId)).data.status != 'CONCLUIDA' &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'arquivo',
+          'atualizadoEm'
+        ]) &&
+        request.resource.data.atualizadoEm is timestamp &&
+        arquivoDoProcessoEValido(ordemId, processoId);
+    }
+
+    match /usuarios/{usuarioId} {
+      allow create: if autenticado() && request.auth.uid == usuarioId;
+      allow read: if usuarioAtivo();
+      allow update: if usuarioAtivo() && (
+        perfil().cargo == 'ADMIN' ||
+        (request.auth.uid == usuarioId &&
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['referenciasOrdensParticipadas', 'atualizadoEm']))
+      );
+      allow delete: if false;
+    }
+
+    match /candidatos/{candidatoId} {
+      allow read: if usuarioAtivo();
+      allow create, update: if podeCriarCadastrosEOrdens();
+      allow delete: if possuiCargo(['ADMIN']);
+    }
+
+    match /materiais/{materialId} {
+      allow read: if usuarioAtivo();
+      allow create: if podeCriarCadastrosEOrdens();
+      allow update: if podeCriarCadastrosEOrdens() ||
+        (podeOperarMaquina() &&
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['rolosUtilizados', 'atualizadoEm']));
+      allow delete: if possuiCargo(['ADMIN']);
+    }
+
+    match /nomes-de-materiais/{nomeNormalizado} {
+      allow read: if usuarioAtivo();
+      allow create: if podeCriarCadastrosEOrdens();
+      allow update, delete: if possuiCargo(['ADMIN']);
+    }
+
+    match /ordens-de-servico/{ordemId} {
+      allow read: if usuarioAtivo();
+      allow create: if podeCriarCadastrosEOrdens();
+      allow update: if podeRegistrarOrdemEmProducao() ||
+        podeRegistrarConclusaoNormal(ordemId) ||
+        podeRegistrarConclusaoForcada() ||
+        podeMarcarOrdemComoParada();
+      allow delete: if possuiCargo(['ADMIN']);
+
+      match /processos/{processoId} {
+        allow read: if usuarioAtivo();
+        allow create: if podeCriarCadastrosEOrdens();
+        allow update: if (
+          podeOperarMaquina() &&
+            get(/databases/$(database)/documents/ordens-de-servico/$(ordemId)).data.status != 'CONCLUIDA' &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'unidadesProduzidas',
+              'ultimaAtividadeEm',
+              'referenciaUltimoUsuario',
+              'atualizadoEm'
+            ]) &&
+            request.resource.data.unidadesProduzidas is int &&
+            request.resource.data.unidadesProduzidas >= 0 &&
+            (
+              request.resource.data.unidadesProduzidas <= resource.data.unidadesProduzidas ||
+              resource.data.unidadesProduzidas < resource.data.metaDeUnidades
+            )
+        ) || podeSubstituirArquivoDoProcesso(ordemId, processoId);
+        allow delete: if possuiCargo(['ADMIN']);
+      }
+    }
+
+    match /operacoes-idempotentes/{operacaoId} {
+      allow read, create, update: if podeOperarMaquina();
+      allow delete: if false;
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "candidatos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "ativo", "order": "ASCENDING" },
+        { "fieldPath": "nomeNormalizado", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "materiais",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "ativo", "order": "ASCENDING" },
+        { "fieldPath": "nomeNormalizado", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
