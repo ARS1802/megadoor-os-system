@@ -7,15 +7,17 @@
         { "fieldPath": "ativo", "order": "ASCENDING" },
         { "fieldPath": "nomeNormalizado", "order": "ASCENDING" }
       ]
-    },
-    {
-      "collectionGroup": "materiais",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "ativo", "order": "ASCENDING" },
-        { "fieldPath": "nomeNormalizado", "order": "ASCENDING" }
-      ]
     }
   ],
-  "fieldOverrides": []
+  "fieldOverrides": [
+    {
+      "collectionGroup": "operacoes-idempotentes",
+      "fieldPath": "expiraEm",
+      "ttl": true,
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "DESCENDING", "queryScope": "COLLECTION" }
+      ]
+    }
+  ]
 }

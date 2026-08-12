@@ -125,6 +125,22 @@ describe("criação coordenada da Ordem de Serviço", () => {
     expect(dependencias.criarComRelacionamentos).not.toHaveBeenCalled();
   });
 
+  it("tenta remover o diretório se sua criação termina com uma falha ambígua", async () => {
+    const dependencias = preparar();
+    dependencias.servidor.criarDiretorioDaOrdem.mockImplementationOnce(async () => {
+      dependencias.ordemDasOperacoes.push("diretorio");
+      throw new Error("resposta perdida ao criar diretório");
+    });
+
+    await expect(dependencias.caso.executar(entrada())).rejects.toThrow(
+      "resposta perdida ao criar diretório",
+    );
+
+    expect(dependencias.removerDiretorioDaOrdem).toHaveBeenCalledOnce();
+    expect(dependencias.ordemDasOperacoes).toEqual(["diretorio", "remover-diretorio"]);
+    expect(dependencias.servidor.criarArquivoDeRegistro).not.toHaveBeenCalled();
+  });
+
   it("compensa sem iniciar processos quando a observação falha", async () => {
     const dependencias = preparar();
     dependencias.servidor.criarArquivoDeObservacao.mockRejectedValueOnce(

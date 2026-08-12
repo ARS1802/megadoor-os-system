@@ -11,7 +11,7 @@ defineProps<{ titulo: string; permitirCriacao?: boolean; mostrarAdministracao?: 
 const dados = usarDados();
 const { usuarioAtual } = usarSessao();
 const { comRetorno } = usarNavegacaoContextual();
-onMounted(() => void dados.carregar());
+onMounted(() => void dados.carregar().catch(() => undefined));
 </script>
 
 <template>
@@ -51,6 +51,9 @@ onMounted(() => void dados.carregar());
       </div>
     </div>
     <p v-if="dados.carregando.value" class="state-message">Atualizando ordens...</p>
+    <p v-else-if="dados.erro.value" class="state-message state-message--error" role="alert">
+      {{ dados.erro.value.message }}
+    </p>
     <TabelaOrdens v-else :ordens="dados.ordens.value" />
   </main>
 </template>

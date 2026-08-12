@@ -41,15 +41,23 @@ const usuarios = computed(() => [
 ]);
 
 onMounted(async () => {
-  await dados.carregar();
+  try {
+    await dados.carregar();
+  } catch {
+    carregando.value = false;
+    return;
+  }
   try {
     texto.value =
       firebaseEstaConfigurado && ordem.value
         ? await servidorDeArquivos.lerTexto(ordem.value.caminhoRegistro)
         : lerRegistroDemonstrativo(id.value);
-  } catch {
-    texto.value = lerRegistroDemonstrativo(id.value);
-    notificar("O registro real não pôde ser carregado; exibindo dados demonstrativos.", "warning");
+  } catch (falha) {
+    texto.value = "";
+    notificar(
+      falha instanceof Error ? falha.message : "O registro real não pôde ser carregado.",
+      "error",
+    );
   } finally {
     carregando.value = false;
   }

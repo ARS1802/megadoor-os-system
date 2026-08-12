@@ -6,8 +6,12 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function referenciaDoUsuario(usuarioId) {
+      return /databases/$(database)/documents/usuarios/$(usuarioId);
+    }
+
     function perfil() {
-      return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data;
+      return get(referenciaDoUsuario(request.auth.uid)).data;
     }
 
     function usuarioAtivo() {
@@ -26,6 +30,444 @@ service cloud.firestore {
       return possuiCargo(['ADMIN', 'DESIGNER', 'MAQUINISTA']);
     }
 
+    function cargoEValido(cargo) {
+      return cargo is string && cargo in ['ADMIN', 'DESIGNER', 'MAQUINISTA'];
+    }
+
+    function tipoDeProcessoEValido(tipo) {
+      return tipo is string && tipo in ['IMPRESSAO', 'PLOTAGEM', 'CORTE'];
+    }
+
+    function listaDeProcessosEValida(tipos) {
+      return tipos is list &&
+        tipos.size() >= 1 &&
+        tipos.size() <= 3 &&
+        tipos.hasOnly(['IMPRESSAO', 'PLOTAGEM', 'CORTE']) &&
+        (
+          tipos.size() == 1 ||
+          (tipos.size() == 2 && tipos[0] != tipos[1]) ||
+          (tipos.size() == 3 &&
+            tipos[0] != tipos[1] &&
+            tipos[0] != tipos[2] &&
+            tipos[1] != tipos[2])
+        );
+    }
+
+    function timestampOuNulo(valor) {
+      return valor == null || valor is timestamp;
+    }
+
+    function inteiroNaoNegativoOuNulo(valor) {
+      return valor == null || (valor is int && valor >= 0);
+    }
+
+    function numeroNaoNegativoOuNulo(valor) {
+      return valor == null || (valor is number && valor >= 0);
+    }
+
+    function documentoFiscalEValido(documentoFiscal) {
+      return documentoFiscal is map &&
+        documentoFiscal.keys().hasAll(['tipo', 'numero']) &&
+        documentoFiscal.keys().hasOnly(['tipo', 'numero']) &&
+        documentoFiscal.tipo is string &&
+        documentoFiscal.tipo in ['CPF', 'CNPJ'] &&
+        documentoFiscal.numero is string &&
+        documentoFiscal.numero.size() > 0;
+    }
+
+    function dimensoesDaUnidadeSaoValidas(dimensoes) {
+      return dimensoes is map &&
+        dimensoes.keys().hasAll(['larguraEmCentimetros', 'alturaEmCentimetros']) &&
+        dimensoes.keys().hasOnly(['larguraEmCentimetros', 'alturaEmCentimetros']) &&
+        dimensoes.larguraEmCentimetros is number &&
+        dimensoes.larguraEmCentimetros > 0 &&
+        dimensoes.alturaEmCentimetros is number &&
+        dimensoes.alturaEmCentimetros > 0;
+    }
+
+    function dimensoesDoRoloSaoValidas(dimensoes) {
+      return dimensoes is map &&
+        dimensoes.keys().hasAll(['larguraEmCentimetros', 'comprimentoEmCentimetros']) &&
+        dimensoes.keys().hasOnly(['larguraEmCentimetros', 'comprimentoEmCentimetros']) &&
+        dimensoes.larguraEmCentimetros is number &&
+        dimensoes.larguraEmCentimetros > 0 &&
+        dimensoes.comprimentoEmCentimetros is number &&
+        dimensoes.comprimentoEmCentimetros > 0;
+    }
+
+    function especificacaoDeGradeEValida(especificacao) {
+      return especificacao is map &&
+        especificacao.keys().hasAll([
+          'larguraEmCentimetros',
+          'alturaEmCentimetros',
+          'unidadesPorGrade'
+        ]) &&
+        especificacao.keys().hasOnly([
+          'larguraEmCentimetros',
+          'alturaEmCentimetros',
+          'unidadesPorGrade'
+        ]) &&
+        especificacao.larguraEmCentimetros is number &&
+        especificacao.larguraEmCentimetros > 0 &&
+        especificacao.alturaEmCentimetros is number &&
+        especificacao.alturaEmCentimetros > 0 &&
+        especificacao.unidadesPorGrade is int &&
+        especificacao.unidadesPorGrade > 0;
+    }
+
+    function usuarioEValido(dados) {
+      return dados is map &&
+        dados.keys().hasAll([
+          'nome',
+          'email',
+          'cargo',
+          'ativo',
+          'referenciasOrdensParticipadas',
+          'criadoEm',
+          'atualizadoEm'
+        ]) &&
+        dados.keys().hasOnly([
+          'nome',
+          'email',
+          'cargo',
+          'ativo',
+          'referenciasOrdensParticipadas',
+          'criadoEm',
+          'atualizadoEm'
+        ]) &&
+        dados.nome is string &&
+        dados.nome.size() > 0 &&
+        dados.email is string &&
+        dados.email.matches('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$') &&
+        cargoEValido(dados.cargo) &&
+        dados.ativo is bool &&
+        dados.referenciasOrdensParticipadas is list &&
+        dados.criadoEm is timestamp &&
+        dados.atualizadoEm is timestamp;
+    }
+
+    function candidatoEValido(dados) {
+      return dados is map &&
+        dados.keys().hasAll([
+          'nome',
+          'nomeNormalizado',
+          'ativo',
+          'referenciaUsuarioCriador',
+          'criadoEm',
+          'atualizadoEm'
+        ]) &&
+        dados.keys().hasOnly([
+          'nome',
+          'nomeNormalizado',
+          'partido',
+          'documentoFiscal',
+          'observacoes',
+          'ativo',
+          'referenciaUsuarioCriador',
+          'criadoEm',
+          'atualizadoEm'
+        ]) &&
+        dados.nome is string &&
+        dados.nome.size() > 0 &&
+        dados.nomeNormalizado is string &&
+        dados.nomeNormalizado.size() > 0 &&
+        (!('partido' in dados) ||
+          (dados.partido is string && dados.partido.size() > 0)) &&
+        (!('documentoFiscal' in dados) || documentoFiscalEValido(dados.documentoFiscal)) &&
+        (!('observacoes' in dados) || dados.observacoes is string) &&
+        dados.ativo is bool &&
+        dados.referenciaUsuarioCriador is path &&
+        dados.criadoEm is timestamp &&
+        dados.atualizadoEm is timestamp;
+    }
+
+    function materialEValido(dados) {
+      return dados is map &&
+        dados.keys().hasAll([
+          'nome',
+          'nomeNormalizado',
+          'marca',
+          'dimensoesDoRolo',
+          'rolosUtilizados',
+          'referenciasOrdensDeServico',
+          'referenciaUsuarioCriador',
+          'criadoEm',
+          'atualizadoEm'
+        ]) &&
+        dados.keys().hasOnly([
+          'nome',
+          'nomeNormalizado',
+          'marca',
+          'dimensoesDoRolo',
+          'gramatura',
+          'caminhoImagemEtiqueta',
+          'rolosUtilizados',
+          'referenciasOrdensDeServico',
+          'referenciaUsuarioCriador',
+          'criadoEm',
+          'atualizadoEm'
+        ]) &&
+        dados.nome is string &&
+        dados.nome.size() > 0 &&
+        dados.nomeNormalizado is string &&
+        dados.nomeNormalizado.size() > 0 &&
+        dados.marca is string &&
+        dados.marca.size() > 0 &&
+        dimensoesDoRoloSaoValidas(dados.dimensoesDoRolo) &&
+        (!('gramatura' in dados) ||
+          (dados.gramatura is number && dados.gramatura > 0)) &&
+        (!('caminhoImagemEtiqueta' in dados) ||
+          dados.caminhoImagemEtiqueta is string) &&
+        dados.rolosUtilizados is int &&
+        dados.rolosUtilizados >= 0 &&
+        dados.referenciasOrdensDeServico is list &&
+        dados.referenciaUsuarioCriador is path &&
+        dados.criadoEm is timestamp &&
+        dados.atualizadoEm is timestamp;
+    }
+
+    function dadosDaConclusaoSaoEstruturalmenteValidos(dados) {
+      return dados is map &&
+        dados.keys().hasAll([
+          'concluidaEm',
+          'referenciaUsuarioResponsavel',
+          'foiForcada'
+        ]) &&
+        dados.keys().hasOnly([
+          'concluidaEm',
+          'referenciaUsuarioResponsavel',
+          'foiForcada',
+          'justificativa'
+        ]) &&
+        dados.concluidaEm is timestamp &&
+        dados.referenciaUsuarioResponsavel is path &&
+        dados.foiForcada is bool &&
+        (!('justificativa' in dados) || dados.justificativa is string);
+    }
+
+    function ordemEValida(ordemId, dados) {
+      return ordemId.matches('^[A-Za-z0-9_-]+$') &&
+        dados is map &&
+        dados.keys().hasAll([
+          'referenciaCandidato',
+          'referenciaMaterial',
+          'referenciaUsuarioCriador',
+          'tiragem',
+          'quantidadeTotal',
+          'dimensoesDaUnidade',
+          'especificacaoDeGrade',
+          'tiposDeProcessos',
+          'status',
+          'ultimaAtividadeEm',
+          'caminhoRegistro',
+          'caminhoObservacao',
+          'metragemQuadradaCalculada',
+          'quantidadeRolosCalculada',
+          'criadaEm',
+          'atualizadaEm'
+        ]) &&
+        dados.keys().hasOnly([
+          'referenciaCandidato',
+          'referenciaMaterial',
+          'referenciaUsuarioCriador',
+          'tiragem',
+          'quantidadeTotal',
+          'dimensoesDaUnidade',
+          'especificacaoDeGrade',
+          'tiposDeProcessos',
+          'status',
+          'ultimaAtividadeEm',
+          'caminhoRegistro',
+          'caminhoObservacao',
+          'dadosDeConclusao',
+          'metragemQuadradaCalculada',
+          'quantidadeRolosCalculada',
+          'criadaEm',
+          'atualizadaEm'
+        ]) &&
+        dados.referenciaCandidato is path &&
+        dados.referenciaMaterial is path &&
+        dados.referenciaUsuarioCriador is path &&
+        dados.tiragem is int &&
+        dados.tiragem > 0 &&
+        dados.quantidadeTotal is int &&
+        dados.quantidadeTotal > 0 &&
+        dimensoesDaUnidadeSaoValidas(dados.dimensoesDaUnidade) &&
+        especificacaoDeGradeEValida(dados.especificacaoDeGrade) &&
+        listaDeProcessosEValida(dados.tiposDeProcessos) &&
+        dados.status is string &&
+        dados.status in ['PRONTA', 'EM_PRODUCAO', 'PARADA', 'CONCLUIDA'] &&
+        timestampOuNulo(dados.ultimaAtividadeEm) &&
+        dados.caminhoRegistro is string &&
+        dados.caminhoRegistro.matches(
+          '^ordens-de-servico/' + ordemId + '/registro\\.txt$'
+        ) &&
+        dados.caminhoObservacao is string &&
+        dados.caminhoObservacao.matches(
+          '^ordens-de-servico/' + ordemId + '/observacao\\.txt$'
+        ) &&
+        (!('dadosDeConclusao' in dados) ||
+          dadosDaConclusaoSaoEstruturalmenteValidos(dados.dadosDeConclusao)) &&
+        numeroNaoNegativoOuNulo(dados.metragemQuadradaCalculada) &&
+        inteiroNaoNegativoOuNulo(dados.quantidadeRolosCalculada) &&
+        dados.criadaEm is timestamp &&
+        dados.atualizadaEm is timestamp;
+    }
+
+    function criacaoDeOrdemEValida(dados) {
+      return dados.status == 'PRONTA' &&
+        dados.ultimaAtividadeEm == null &&
+        !('dadosDeConclusao' in dados) &&
+        dados.metragemQuadradaCalculada == null &&
+        dados.quantidadeRolosCalculada == null;
+    }
+
+    function extensaoDoArquivoEValida(processoId, extensao) {
+      return extensao is string && (
+        (processoId == 'impressao' && extensao in ['.pdf', '.jpg', '.jpeg', '.png']) ||
+        (processoId in ['plotagem', 'corte'] && extensao in ['.plt', '.pdf'])
+      );
+    }
+
+    function arquivoDoProcessoEValido(ordemId, processoId, arquivo) {
+      return arquivo is map &&
+        arquivo.keys().hasAll([
+          'nomeOriginal',
+          'extensao',
+          'tamanhoEmBytes',
+          'caminhoNoServidor'
+        ]) &&
+        arquivo.keys().hasOnly([
+          'nomeOriginal',
+          'extensao',
+          'tamanhoEmBytes',
+          'caminhoNoServidor',
+          'modificadoEm'
+        ]) &&
+        arquivo.nomeOriginal is string &&
+        arquivo.nomeOriginal.size() > 0 &&
+        arquivo.nomeOriginal.matches('^[^/]+$') &&
+        extensaoDoArquivoEValida(processoId, arquivo.extensao) &&
+        arquivo.tamanhoEmBytes is int &&
+        arquivo.tamanhoEmBytes >= 0 &&
+        arquivo.caminhoNoServidor is string &&
+        arquivo.caminhoNoServidor.matches(
+          '^ordens-de-servico/' + ordemId + '/' + processoId + '/[^/]+$'
+        ) &&
+        (!('modificadoEm' in arquivo) || arquivo.modificadoEm is timestamp);
+    }
+
+    function processoEValido(ordemId, processoId, dados) {
+      return dados is map &&
+        processoId in ['impressao', 'plotagem', 'corte'] &&
+        dados.keys().hasAll([
+          'tipo',
+          'arquivo',
+          'unidadesProduzidas',
+          'metaDeUnidades',
+          'ultimaAtividadeEm',
+          'referenciaUltimoUsuario',
+          'criadoEm',
+          'atualizadoEm'
+        ]) &&
+        dados.keys().hasOnly([
+          'tipo',
+          'arquivo',
+          'unidadesProduzidas',
+          'metaDeUnidades',
+          'ultimaAtividadeEm',
+          'referenciaUltimoUsuario',
+          'criadoEm',
+          'atualizadoEm'
+        ]) &&
+        tipoDeProcessoEValido(dados.tipo) &&
+        (
+          (processoId == 'impressao' && dados.tipo == 'IMPRESSAO') ||
+          (processoId == 'plotagem' && dados.tipo == 'PLOTAGEM') ||
+          (processoId == 'corte' && dados.tipo == 'CORTE')
+        ) &&
+        arquivoDoProcessoEValido(ordemId, processoId, dados.arquivo) &&
+        dados.unidadesProduzidas is int &&
+        dados.unidadesProduzidas >= 0 &&
+        dados.metaDeUnidades is int &&
+        dados.metaDeUnidades > 0 &&
+        timestampOuNulo(dados.ultimaAtividadeEm) &&
+        (dados.referenciaUltimoUsuario == null || dados.referenciaUltimoUsuario is path) &&
+        dados.criadoEm is timestamp &&
+        dados.atualizadoEm is timestamp;
+    }
+
+    function criacaoDeProcessoEValida(ordemId, dados) {
+      let ordem = getAfter(
+        /databases/$(database)/documents/ordens-de-servico/$(ordemId)
+      ).data;
+      return ordem.status == 'PRONTA' &&
+        dados.unidadesProduzidas == 0 &&
+        dados.metaDeUnidades == ordem.quantidadeTotal &&
+        dados.ultimaAtividadeEm == null &&
+        dados.referenciaUltimoUsuario == null;
+    }
+
+    function reservaDeNomeDeMaterialEValida(dados) {
+      return dados is map &&
+        dados.keys().hasAll(['nomeNormalizado', 'referenciaMaterial', 'criadoEm']) &&
+        dados.keys().hasOnly(['nomeNormalizado', 'referenciaMaterial', 'criadoEm']) &&
+        dados.nomeNormalizado is string &&
+        dados.nomeNormalizado.size() > 0 &&
+        dados.referenciaMaterial is path &&
+        dados.criadoEm is timestamp;
+    }
+
+    function operacaoIdempotenteEValida(dados) {
+      return dados is map &&
+        dados.keys().hasAll([
+          'referenciaOrdemDeServico',
+          'referenciaUsuario',
+          'tipoProcesso',
+          'sincronizacaoDoRegistro',
+          'criadaEm',
+          'expiraEm'
+        ]) &&
+        dados.keys().hasOnly([
+          'referenciaOrdemDeServico',
+          'referenciaUsuario',
+          'tipoProcesso',
+          'sincronizacaoDoRegistro',
+          'criadaEm',
+          'expiraEm'
+        ]) &&
+        dados.referenciaOrdemDeServico is path &&
+        dados.referenciaUsuario is path &&
+        tipoDeProcessoEValido(dados.tipoProcesso) &&
+        dados.sincronizacaoDoRegistro is string &&
+        dados.sincronizacaoDoRegistro in ['PENDENTE', 'EM_ENVIO', 'CONCLUIDA'] &&
+        dados.criadaEm is timestamp &&
+        dados.expiraEm is timestamp &&
+        dados.expiraEm > dados.criadaEm;
+    }
+
+    function operacaoPertenceAoUsuario(dados) {
+      return dados.referenciaUsuario == referenciaDoUsuario(request.auth.uid);
+    }
+
+    function criacaoDeOperacaoIdempotenteEValida() {
+      return podeOperarMaquina() &&
+        operacaoIdempotenteEValida(request.resource.data) &&
+        operacaoPertenceAoUsuario(request.resource.data) &&
+        request.resource.data.sincronizacaoDoRegistro == 'PENDENTE';
+    }
+
+    function confirmacaoDeRegistroEValida() {
+      return podeOperarMaquina() &&
+        operacaoIdempotenteEValida(request.resource.data) &&
+        operacaoPertenceAoUsuario(resource.data) &&
+        operacaoPertenceAoUsuario(request.resource.data) &&
+        resource.data.sincronizacaoDoRegistro == 'PENDENTE' &&
+        request.resource.data.sincronizacaoDoRegistro == 'CONCLUIDA' &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['sincronizacaoDoRegistro']);
+    }
+
     function processoConcluidoAposAOperacao(ordemId, processoId) {
       let processo = getAfter(
         /databases/$(database)/documents/ordens-de-servico/$(ordemId)/processos/$(processoId)
@@ -36,59 +478,62 @@ service cloud.firestore {
     }
 
     function todosOsProcessosConcluidosAposAOperacao(ordemId) {
-      let tipos = resource.data.tiposDeProcessos;
-      return tipos is list &&
-        tipos.size() >= 1 &&
-        tipos.hasOnly(['IMPRESSAO', 'PLOTAGEM', 'CORTE']) &&
+      let tipos = get(
+        /databases/$(database)/documents/ordens-de-servico/$(ordemId)
+      ).data.tiposDeProcessos;
+      return listaDeProcessosEValida(tipos) &&
         (!('IMPRESSAO' in tipos) || processoConcluidoAposAOperacao(ordemId, 'impressao')) &&
         (!('PLOTAGEM' in tipos) || processoConcluidoAposAOperacao(ordemId, 'plotagem')) &&
         (!('CORTE' in tipos) || processoConcluidoAposAOperacao(ordemId, 'corte'));
     }
 
+    function estadoDaOrdemECoerenteAposAjuste(ordemId) {
+      let ordemAntes = get(
+        /databases/$(database)/documents/ordens-de-servico/$(ordemId)
+      ).data;
+      let ordemDepois = getAfter(
+        /databases/$(database)/documents/ordens-de-servico/$(ordemId)
+      ).data;
+      let todosConcluidos = todosOsProcessosConcluidosAposAOperacao(ordemId);
+      return ordemDepois.diff(ordemAntes).affectedKeys().hasAll([
+          'ultimaAtividadeEm',
+          'atualizadaEm'
+        ]) &&
+        ordemDepois.ultimaAtividadeEm == request.resource.data.ultimaAtividadeEm &&
+        ordemDepois.atualizadaEm == request.resource.data.atualizadoEm &&
+        (
+          (todosConcluidos && ordemDepois.status == 'CONCLUIDA') ||
+          (!todosConcluidos && ordemDepois.status == 'EM_PRODUCAO')
+        );
+    }
+
     function dadosDaConclusaoNormalSaoValidos() {
       let dados = request.resource.data.dadosDeConclusao;
-      return dados is map &&
-        dados.keys().hasAll([
-          'concluidaEm',
-          'referenciaUsuarioResponsavel',
-          'foiForcada'
-        ]) &&
+      return dadosDaConclusaoSaoEstruturalmenteValidos(dados) &&
         dados.keys().hasOnly([
           'concluidaEm',
           'referenciaUsuarioResponsavel',
           'foiForcada'
         ]) &&
         dados.foiForcada == false &&
-        dados.referenciaUsuarioResponsavel ==
-          /databases/$(database)/documents/usuarios/$(request.auth.uid);
+        dados.referenciaUsuarioResponsavel == referenciaDoUsuario(request.auth.uid);
     }
 
     function dadosDaConclusaoForcadaSaoValidos() {
       let dados = request.resource.data.dadosDeConclusao;
-      return dados is map &&
-        dados.keys().hasAll([
-          'concluidaEm',
-          'referenciaUsuarioResponsavel',
-          'foiForcada',
-          'justificativa'
-        ]) &&
-        dados.keys().hasOnly([
-          'concluidaEm',
-          'referenciaUsuarioResponsavel',
-          'foiForcada',
-          'justificativa'
-        ]) &&
+      return dadosDaConclusaoSaoEstruturalmenteValidos(dados) &&
+        dados.keys().hasAll(['justificativa']) &&
         dados.foiForcada == true &&
-        dados.justificativa is string &&
         dados.justificativa.size() > 0 &&
-        dados.referenciaUsuarioResponsavel ==
-          /databases/$(database)/documents/usuarios/$(request.auth.uid);
+        dados.referenciaUsuarioResponsavel == referenciaDoUsuario(request.auth.uid);
     }
 
     function podeRegistrarOrdemEmProducao() {
       return podeOperarMaquina() &&
         resource.data.status != 'CONCLUIDA' &&
         request.resource.data.status == 'EM_PRODUCAO' &&
+        request.resource.data.ultimaAtividadeEm is timestamp &&
+        request.resource.data.atualizadaEm is timestamp &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'status',
           'ultimaAtividadeEm',
@@ -108,6 +553,12 @@ service cloud.firestore {
           'quantidadeRolosCalculada',
           'atualizadaEm'
         ]) &&
+        request.resource.data.ultimaAtividadeEm is timestamp &&
+        request.resource.data.metragemQuadradaCalculada is number &&
+        request.resource.data.metragemQuadradaCalculada >= 0 &&
+        request.resource.data.quantidadeRolosCalculada is int &&
+        request.resource.data.quantidadeRolosCalculada >= 0 &&
+        request.resource.data.atualizadaEm is timestamp &&
         dadosDaConclusaoNormalSaoValidos() &&
         todosOsProcessosConcluidosAposAOperacao(ordemId);
     }
@@ -123,52 +574,39 @@ service cloud.firestore {
           'quantidadeRolosCalculada',
           'atualizadaEm'
         ]) &&
+        request.resource.data.metragemQuadradaCalculada is number &&
+        request.resource.data.metragemQuadradaCalculada >= 0 &&
+        request.resource.data.quantidadeRolosCalculada is int &&
+        request.resource.data.quantidadeRolosCalculada >= 0 &&
+        request.resource.data.atualizadaEm is timestamp &&
         dadosDaConclusaoForcadaSaoValidos();
     }
 
     function podeMarcarOrdemComoParada() {
       return usuarioAtivo() &&
         resource.data.status == 'EM_PRODUCAO' &&
+        resource.data.ultimaAtividadeEm is timestamp &&
+        request.time >= resource.data.ultimaAtividadeEm + duration.value(1, 'h') &&
         request.resource.data.status == 'PARADA' &&
+        request.resource.data.atualizadaEm is timestamp &&
         request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['status', 'atualizadaEm']);
     }
 
-    function extensaoDoArquivoEValida(processoId, extensao) {
-      return extensao is string && (
-        (processoId == 'impressao' && extensao in ['.pdf', '.jpg', '.jpeg', '.png']) ||
-        (processoId in ['plotagem', 'corte'] && extensao in ['.plt', '.pdf'])
-      );
-    }
-
-    function arquivoDoProcessoEValido(ordemId, processoId) {
-      let arquivo = request.resource.data.arquivo;
-      return arquivo is map &&
-        arquivo.keys().hasAll([
-          'nomeOriginal',
-          'extensao',
-          'tamanhoEmBytes',
-          'caminhoNoServidor',
-          'modificadoEm'
-        ]) &&
-        arquivo.keys().hasOnly([
-          'nomeOriginal',
-          'extensao',
-          'tamanhoEmBytes',
-          'caminhoNoServidor',
-          'modificadoEm'
-        ]) &&
-        arquivo.nomeOriginal is string &&
-        arquivo.nomeOriginal.size() > 0 &&
-        arquivo.nomeOriginal.matches('^[^/]+$') &&
-        extensaoDoArquivoEValida(processoId, arquivo.extensao) &&
-        arquivo.tamanhoEmBytes is int &&
-        arquivo.tamanhoEmBytes >= 0 &&
-        arquivo.caminhoNoServidor is string &&
-        arquivo.caminhoNoServidor.matches(
-          '^ordens-de-servico/' + ordemId + '/' + processoId + '/[^/]+$'
-        ) &&
-        arquivo.modificadoEm is timestamp;
+    function podeAtualizarOrdem(ordemId) {
+      return (request.resource.data.status == 'EM_PRODUCAO' &&
+          podeRegistrarOrdemEmProducao()) ||
+        (request.resource.data.status == 'PARADA' &&
+          podeMarcarOrdemComoParada()) ||
+        (request.resource.data.status == 'CONCLUIDA' &&
+          request.resource.data.dadosDeConclusao is map &&
+          request.resource.data.dadosDeConclusao.foiForcada is bool &&
+          (
+            (request.resource.data.dadosDeConclusao.foiForcada == true &&
+              podeRegistrarConclusaoForcada()) ||
+            (request.resource.data.dadosDeConclusao.foiForcada == false &&
+              podeRegistrarConclusaoNormal(ordemId))
+          ));
     }
 
     function podeSubstituirArquivoDoProcesso(ordemId, processoId) {
@@ -178,56 +616,78 @@ service cloud.firestore {
           'arquivo',
           'atualizadoEm'
         ]) &&
-        request.resource.data.atualizadoEm is timestamp &&
-        arquivoDoProcessoEValido(ordemId, processoId);
+        'modificadoEm' in request.resource.data.arquivo &&
+        processoEValido(ordemId, processoId, request.resource.data);
     }
 
     match /usuarios/{usuarioId} {
-      allow create: if autenticado() && request.auth.uid == usuarioId;
-      allow read: if usuarioAtivo();
-      allow update: if usuarioAtivo() && (
-        perfil().cargo == 'ADMIN' ||
-        (request.auth.uid == usuarioId &&
-          request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['referenciasOrdensParticipadas', 'atualizadoEm']))
-      );
+      allow create: if autenticado() &&
+        request.auth.uid == usuarioId &&
+        usuarioEValido(request.resource.data);
+      allow read: if autenticado() && request.auth.uid == usuarioId || usuarioAtivo();
+      allow update: if usuarioAtivo() &&
+        usuarioEValido(request.resource.data) && (
+          perfil().cargo == 'ADMIN' ||
+          (request.auth.uid == usuarioId &&
+            request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['referenciasOrdensParticipadas', 'atualizadoEm']))
+        );
       allow delete: if false;
     }
 
     match /candidatos/{candidatoId} {
       allow read: if usuarioAtivo();
-      allow create, update: if podeCriarCadastrosEOrdens();
+      allow create: if podeCriarCadastrosEOrdens() &&
+        candidatoEValido(request.resource.data) &&
+        request.resource.data.referenciaUsuarioCriador == referenciaDoUsuario(request.auth.uid);
+      allow update: if podeCriarCadastrosEOrdens() &&
+        candidatoEValido(request.resource.data) &&
+        request.resource.data.referenciaUsuarioCriador == resource.data.referenciaUsuarioCriador;
       allow delete: if possuiCargo(['ADMIN']);
     }
 
     match /materiais/{materialId} {
       allow read: if usuarioAtivo();
-      allow create: if podeCriarCadastrosEOrdens();
-      allow update: if podeCriarCadastrosEOrdens() ||
+      allow create: if podeCriarCadastrosEOrdens() &&
+        materialEValido(request.resource.data) &&
+        request.resource.data.referenciaUsuarioCriador == referenciaDoUsuario(request.auth.uid);
+      allow update: if materialEValido(request.resource.data) && (
+        (podeCriarCadastrosEOrdens() &&
+          request.resource.data.referenciaUsuarioCriador ==
+            resource.data.referenciaUsuarioCriador) ||
         (podeOperarMaquina() &&
           request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['rolosUtilizados', 'atualizadoEm']));
+            .hasOnly(['rolosUtilizados', 'atualizadoEm']))
+      );
       allow delete: if possuiCargo(['ADMIN']);
     }
 
     match /nomes-de-materiais/{nomeNormalizado} {
       allow read: if usuarioAtivo();
-      allow create: if podeCriarCadastrosEOrdens();
-      allow update, delete: if possuiCargo(['ADMIN']);
+      allow create: if podeCriarCadastrosEOrdens() &&
+        reservaDeNomeDeMaterialEValida(request.resource.data);
+      allow update: if possuiCargo(['ADMIN']) &&
+        reservaDeNomeDeMaterialEValida(request.resource.data);
+      allow delete: if possuiCargo(['ADMIN']);
     }
 
     match /ordens-de-servico/{ordemId} {
       allow read: if usuarioAtivo();
-      allow create: if podeCriarCadastrosEOrdens();
-      allow update: if podeRegistrarOrdemEmProducao() ||
-        podeRegistrarConclusaoNormal(ordemId) ||
-        podeRegistrarConclusaoForcada() ||
-        podeMarcarOrdemComoParada();
+      allow create: if podeCriarCadastrosEOrdens() &&
+        ordemEValida(ordemId, request.resource.data) &&
+        criacaoDeOrdemEValida(request.resource.data) &&
+        request.resource.data.referenciaUsuarioCriador == referenciaDoUsuario(request.auth.uid);
+      allow update: if podeAtualizarOrdem(ordemId);
       allow delete: if possuiCargo(['ADMIN']);
 
       match /processos/{processoId} {
         allow read: if usuarioAtivo();
-        allow create: if podeCriarCadastrosEOrdens();
+        allow create: if podeCriarCadastrosEOrdens() &&
+          processoEValido(ordemId, processoId, request.resource.data) &&
+          criacaoDeProcessoEValida(ordemId, request.resource.data) &&
+          request.resource.data.tipo in
+            getAfter(/databases/$(database)/documents/ordens-de-servico/$(ordemId))
+              .data.tiposDeProcessos;
         allow update: if (
           podeOperarMaquina() &&
             get(/databases/$(database)/documents/ordens-de-servico/$(ordemId)).data.status != 'CONCLUIDA' &&
@@ -237,19 +697,28 @@ service cloud.firestore {
               'referenciaUltimoUsuario',
               'atualizadoEm'
             ]) &&
-            request.resource.data.unidadesProduzidas is int &&
-            request.resource.data.unidadesProduzidas >= 0 &&
+            processoEValido(ordemId, processoId, request.resource.data) &&
+            request.resource.data.referenciaUltimoUsuario ==
+              referenciaDoUsuario(request.auth.uid) &&
+            request.resource.data.ultimaAtividadeEm is timestamp &&
+            request.resource.data.atualizadoEm is timestamp &&
             (
               request.resource.data.unidadesProduzidas <= resource.data.unidadesProduzidas ||
               resource.data.unidadesProduzidas < resource.data.metaDeUnidades
-            )
+            ) &&
+            estadoDaOrdemECoerenteAposAjuste(ordemId)
         ) || podeSubstituirArquivoDoProcesso(ordemId, processoId);
         allow delete: if possuiCargo(['ADMIN']);
       }
     }
 
     match /operacoes-idempotentes/{operacaoId} {
-      allow read, create, update: if podeOperarMaquina();
+      allow read: if podeOperarMaquina() && (
+        !exists(/databases/$(database)/documents/operacoes-idempotentes/$(operacaoId)) ||
+        operacaoPertenceAoUsuario(resource.data)
+      );
+      allow create: if criacaoDeOperacaoIdempotenteEValida();
+      allow update: if confirmacaoDeRegistroEValida();
       allow delete: if false;
     }
   }

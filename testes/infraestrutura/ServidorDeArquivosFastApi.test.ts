@@ -131,6 +131,8 @@ describe("integridade dos uploads", () => {
 
     await servidor().enviarImagemDaEtiquetaDoMaterial("material-1", arquivo);
 
+    expect(calcularSha256DoArquivo).toHaveBeenCalledOnce();
+    expect(calcularSha256DoArquivo).toHaveBeenCalledWith(arquivo);
     expect(requisicao).toHaveBeenCalledTimes(3);
     expect(aguardar.mock.calls).toEqual([[500], [1000]]);
     expect(new Set(formularios).size).toBe(3);
@@ -170,6 +172,20 @@ describe("integridade dos uploads", () => {
         new File(["imagem"], "etiqueta.png", { type: "image/png" }),
       ),
     ).rejects.toBeInstanceOf(ErroIntegridadeDoArquivo);
+  });
+
+  it("recusa uma resposta 2xx que não contém JSON válido", async () => {
+    const requisicao = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("resposta inválida", { status: 200 }));
+
+    await expect(
+      servidor().enviarImagemDaEtiquetaDoMaterial(
+        "material-1",
+        new File(["imagem"], "etiqueta.png", { type: "image/png" }),
+      ),
+    ).rejects.toBeInstanceOf(ErroContratoDoServidor);
+    expect(requisicao).toHaveBeenCalledOnce();
   });
 
   it("recusa caminho, nome ou tamanho diferente do arquivo enviado", async () => {
@@ -282,6 +298,18 @@ describe("classificação de falhas e retry limitado", () => {
     expect(requisicao).toHaveBeenCalledOnce();
   });
 
+  it("não repete erro 5xx", async () => {
+    const requisicao = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(Response.json({ detail: "Falha interna" }, { status: 503 }));
+
+    await expect(servidor().criarDiretorioDaOrdem("OS-1")).rejects.toMatchObject({
+      name: "ErroServidorMegadoor",
+      status: 503,
+    });
+    expect(requisicao).toHaveBeenCalledOnce();
+  });
+
   it("repete apenas a chamada append depois do 409 transitório", async () => {
     const requisicao = vi
       .spyOn(globalThis, "fetch")
@@ -388,6 +416,58 @@ describe("arquivos de produção no FastAPI", () => {
     expect(enviado.caminhoNoServidor).toBe(caminhoFisico);
     expect(enviado.caminhoNoServidor.endsWith("/arte-corrigida.pdf")).toBe(false);
     expect(enviado.modificadoEm).toEqual(new Date("2026-08-12T15:00:00+00:00"));
+  });
+
+  it("mantém o mesmo arquivo físico e UUID ao repetir o upload de substituição", async () => {
+    const formulariosDeUpload: FormData[] = [];
+    let caminhoFisico = "";
+    const requisicao = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, opcoes) => {
+      if (String(url).endsWith("/api/upload")) {
+        const formulario = opcoes?.body as FormData;
+        formulariosDeUpload.push(formulario);
+        if (formulariosDeUpload.length === 1) {
+          return Response.json({ detail: "Tente novamente!" }, { status: 409 });
+        }
+        const arquivo = formulario.get("file") as File;
+        caminhoFisico = `ordens-de-servico/OS-1/impressao/${arquivo.name}`;
+        return respostaDeUpload(formulario);
+      }
+
+      return Response.json({
+        shared_root: "/dados",
+        path: "ordens-de-servico/OS-1/impressao",
+        items: [
+          {
+            name: caminhoFisico.split("/").at(-1),
+            path: caminhoFisico,
+            type: "file",
+            size: 9,
+            modified_at: "2026-08-12T15:00:00+00:00",
+          },
+        ],
+      });
+    });
+    vi.spyOn(
+      ServidorDeArquivosFastApi.prototype as unknown as {
+        aguardar(atraso: number): Promise<void>;
+      },
+      "aguardar",
+    ).mockResolvedValue(undefined);
+
+    await servidor().enviarSubstituicaoDoArquivo(
+      "OS-1",
+      TipoProcessoProducao.IMPRESSAO,
+      new File(["corrigido"], "arte.pdf", { type: "application/pdf" }),
+    );
+
+    const arquivosEnviados = formulariosDeUpload.map(
+      (formulario) => formulario.get("file") as File,
+    );
+    expect(formulariosDeUpload).toHaveLength(2);
+    expect(arquivosEnviados[0]).toBe(arquivosEnviados[1]);
+    expect(arquivosEnviados[0].name).toMatch(/^arte--[0-9a-f-]{36}\.pdf$/);
+    expect(calcularSha256DoArquivo).toHaveBeenCalledOnce();
+    expect(requisicao).toHaveBeenCalledTimes(3);
   });
 
   it("recusa remover caminho fora do diretório exato do processo", async () => {

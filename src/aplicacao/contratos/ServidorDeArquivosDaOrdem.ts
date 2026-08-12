@@ -29,6 +29,8 @@ export interface ServidorDeArquivosDaOrdem {
     tipo: TipoProcessoProducao,
     caminhoNoServidor: string,
   ): Promise<void>;
+  enviarImagemDaEtiquetaDoMaterial(idDoMaterial: string, arquivo: File): Promise<string>;
+  removerDiretorioDoMaterial(idDoMaterial: string): Promise<void>;
   baixarArquivo(caminho: string, atualizarProgresso?: (porcentagem: number) => void): Promise<Blob>;
   lerTexto(caminho: string): Promise<string>;
   acrescentarRegistro(caminho: string, linha: string): Promise<void>;

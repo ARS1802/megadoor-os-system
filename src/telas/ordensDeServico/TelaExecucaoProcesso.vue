@@ -124,7 +124,11 @@ function iniciarObservacao(): void {
 }
 
 onMounted(async () => {
-  await dados.carregar();
+  try {
+    await dados.carregar();
+  } catch {
+    return;
+  }
   iniciarObservacao();
   await hidratarMetadadosDoArquivo();
 });
@@ -214,7 +218,11 @@ async function ajustar(
       resultado.aviso ? "warning" : "blue",
     );
   } catch (erro) {
-    notificar(erro instanceof Error ? erro.message : "Falha ao atualizar a produção.", "error");
+    const mensagem =
+      erro instanceof Error
+        ? `${erro.message} Aguarde a atualização em tempo real antes de tentar novamente.`
+        : "Não foi possível confirmar o ajuste. Aguarde a atualização em tempo real antes de tentar novamente.";
+    notificar(mensagem, "error");
   } finally {
     ajustando.value = false;
   }
@@ -378,6 +386,14 @@ async function ajustar(
       />
     </section>
     <IdentificadorDaPagina rotulo="ID da Ordem de Serviço" :valor="id" />
+  </main>
+  <main v-else-if="dados.erro.value" class="page-shell">
+    <p class="state-message state-message--error" role="alert">
+      {{ dados.erro.value.message }}
+    </p>
+  </main>
+  <main v-else-if="dados.carregando.value || !dados.carregado.value" class="page-shell">
+    <p class="state-message">Carregando processo...</p>
   </main>
   <main v-else class="page-shell">
     <p class="state-message">Este processo não está habilitado para a OS.</p>

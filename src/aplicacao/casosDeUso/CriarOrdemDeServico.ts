@@ -34,8 +34,11 @@ export class CriarOrdemDeServico {
       throw new Error("Seu cargo não pode criar Ordens de Serviço.");
     if (!entrada.processos.length) throw new Error("Selecione ao menos um processo.");
     const id = this.ordens.gerarIdentificador();
-    await this.arquivos.criarDiretorioDaOrdem(id);
     try {
+      // A criação pode falhar depois de o servidor já ter materializado o
+      // diretório. Ela participa da mesma compensação para cobrir esse caso
+      // ambíguo sem deixar arquivos órfãos.
+      await this.arquivos.criarDiretorioDaOrdem(id);
       // Cada etapa termina antes da seguinte. Assim, uma falha não inicia a
       // compensação enquanto outro upload da mesma OS ainda está em andamento.
       const caminhoRegistro = await this.arquivos.criarArquivoDeRegistro(id);

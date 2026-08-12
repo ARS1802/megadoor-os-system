@@ -12,7 +12,7 @@ const campos = reactive({ candidato: "", status: "TODOS" });
 const aplicados = ref({ candidato: "", status: "TODOS" });
 const { notificar } = usarNotificacoes();
 const { destinoDeRetorno } = usarNavegacaoContextual();
-onMounted(() => void dados.carregar());
+onMounted(() => void dados.carregar().catch(() => undefined));
 const filtradas = computed(() =>
   dados.ordens.value.filter(
     (ordem) =>
@@ -63,6 +63,10 @@ function limpar() {
         ><button class="btn btn--secondary" @click="limpar">Limpar</button>
       </div>
     </section>
-    <TabelaOrdens :ordens="filtradas" rotulo="Histórico de Ordens de Serviço" />
+    <p v-if="dados.carregando.value" class="state-message">Atualizando histórico...</p>
+    <p v-else-if="dados.erro.value" class="state-message state-message--error" role="alert">
+      {{ dados.erro.value.message }}
+    </p>
+    <TabelaOrdens v-else :ordens="filtradas" rotulo="Histórico de Ordens de Serviço" />
   </main>
 </template>

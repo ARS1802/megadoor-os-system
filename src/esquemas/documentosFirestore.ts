@@ -1,10 +1,11 @@
 import { z } from "zod";
 import {
   CargoUsuario,
+  StatusSincronizacaoRegistro,
   StatusOrdemDeServico,
   TipoDocumentoFiscal,
   TipoProcessoProducao,
-} from "@/dominio/enumeracoes";
+} from "../dominio/enumeracoes";
 
 export const esquemaReferenciaDeDocumento = z.custom<{ path: string }>(
   (valor) => typeof valor === "object" && valor !== null && "path" in valor,
@@ -119,4 +120,19 @@ export const esquemaDocumentoProcesso = z.strictObject({
   referenciaUltimoUsuario: esquemaReferenciaDeDocumento.nullable(),
   criadoEm: esquemaTimestamp,
   atualizadoEm: esquemaTimestamp,
+});
+
+export const esquemaDocumentoReservaDeNomeDeMaterial = z.strictObject({
+  nomeNormalizado: z.string().min(1),
+  referenciaMaterial: esquemaReferenciaDeDocumento,
+  criadoEm: esquemaTimestamp,
+});
+
+export const esquemaDocumentoOperacaoIdempotente = z.strictObject({
+  referenciaOrdemDeServico: esquemaReferenciaDeDocumento,
+  referenciaUsuario: esquemaReferenciaDeDocumento,
+  tipoProcesso: z.enum(TipoProcessoProducao),
+  sincronizacaoDoRegistro: z.enum(StatusSincronizacaoRegistro),
+  criadaEm: esquemaTimestamp,
+  expiraEm: esquemaTimestamp,
 });

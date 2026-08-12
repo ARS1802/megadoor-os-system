@@ -2,18 +2,13 @@
 import { computed, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import AppHeader from "@/componentes/AppHeader.vue";
-import { Material } from "@/dominio/entidades/Material";
 import { DimensoesDoRolo } from "@/dominio/objetosDeValor";
 import { usarDados } from "@/composables/usarDados";
 import { usarSessao } from "@/composables/usarSessao";
 import { usarNotificacoes } from "@/composables/usarNotificacoes";
 import { usarNavegacaoContextual } from "@/composables/usarNavegacaoContextual";
 import { firebaseEstaConfigurado } from "@/infraestrutura/firebase/configuracaoFirebase";
-import {
-  repositorioDeMateriais,
-  repositorioDeUsuarios,
-  servidorDeArquivos,
-} from "@/infraestrutura/servicosDaAplicacao";
+import { repositorioDeUsuarios, casosDeUso } from "@/infraestrutura/servicosDaAplicacao";
 
 const formulario = reactive({
   nome: "",
@@ -67,34 +62,14 @@ async function salvar(): Promise<void> {
   enviando.value = true;
   try {
     if (firebaseEstaConfigurado) {
-      const referencia = repositorioDeMateriais.gerarReferencia();
-      let caminhoImagemEtiqueta: string | undefined;
-      if (etiqueta.value)
-        caminhoImagemEtiqueta = await servidorDeArquivos.enviarImagemDaEtiquetaDoMaterial(
-          referencia.id,
-          etiqueta.value,
-        );
-      const material = new Material({
-        id: referencia.id,
+      await casosDeUso.criarMaterial.executar({
         nome: formulario.nome,
         marca: formulario.marca,
         dimensoesDoRolo: new DimensoesDoRolo(formulario.largura, formulario.comprimento),
         gramatura: formulario.gramatura ?? undefined,
-        caminhoImagemEtiqueta,
+        etiqueta: etiqueta.value ?? undefined,
         referenciaUsuarioCriador: repositorioDeUsuarios.referencia(sessao.usuarioAtual.value.id),
       });
-      try {
-        await repositorioDeMateriais.criarComNomeUnico(material);
-      } catch (falha) {
-        if (caminhoImagemEtiqueta) {
-          try {
-            await servidorDeArquivos.removerDiretorioDoMaterial(referencia.id);
-          } catch {
-            /* Preserva a falha original. */
-          }
-        }
-        throw falha;
-      }
       await dados.carregar();
     } else {
       const nomeNormalizado = formulario.nome.trim().toLocaleLowerCase("pt-BR");

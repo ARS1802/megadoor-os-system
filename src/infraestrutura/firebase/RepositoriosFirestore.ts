@@ -12,6 +12,7 @@ import {
   setDoc,
   where,
   type DocumentReference,
+  type Unsubscribe,
 } from "firebase/firestore";
 import type {
   EntradaAjusteProducao,
@@ -73,12 +74,26 @@ export class RepositorioDeCandidatosNoFirestore implements RepositorioDeCandidat
   }
 
   async listarAtivos(): Promise<Candidato[]> {
-    const consulta = query(
+    return (await getDocs(this.consultaDeAtivos())).docs.map((item) => item.data());
+  }
+
+  observarAtivos(
+    atualizar: (candidatos: Candidato[]) => void,
+    aoFalhar?: (erro: Error) => void,
+  ): Unsubscribe {
+    return onSnapshot(
+      this.consultaDeAtivos(),
+      (resultado) => atualizar(resultado.docs.map((item) => item.data())),
+      (erro) => aoFalhar?.(erro),
+    );
+  }
+
+  private consultaDeAtivos() {
+    return query(
       collection(obterBancoDeDados(), COLECOES.CANDIDATOS).withConverter(conversorCandidato),
       where("ativo", "==", true),
       orderBy("nomeNormalizado"),
     );
-    return (await getDocs(consulta)).docs.map((item) => item.data());
   }
 
   async obterPorReferencia(referencia: DocumentReference): Promise<Candidato | null> {
@@ -115,12 +130,25 @@ export class RepositorioDeMateriaisNoFirestore implements RepositorioDeMateriais
   }
 
   async listarAtivos(): Promise<Material[]> {
-    const consulta = query(
+    return (await getDocs(this.consultaDisponivel())).docs.map((item) => item.data());
+  }
+
+  observarAtivos(
+    atualizar: (materiais: Material[]) => void,
+    aoFalhar?: (erro: Error) => void,
+  ): Unsubscribe {
+    return onSnapshot(
+      this.consultaDisponivel(),
+      (resultado) => atualizar(resultado.docs.map((item) => item.data())),
+      (erro) => aoFalhar?.(erro),
+    );
+  }
+
+  private consultaDisponivel() {
+    return query(
       collection(obterBancoDeDados(), COLECOES.MATERIAIS).withConverter(conversorMaterial),
-      where("ativo", "==", true),
       orderBy("nomeNormalizado"),
     );
-    return (await getDocs(consulta)).docs.map((item) => item.data());
   }
 
   async obterPorReferencia(referencia: DocumentReference): Promise<Material | null> {
@@ -181,15 +209,17 @@ export class RepositorioDeOrdensNoFirestore implements RepositorioDeOrdensDeServ
     return (await getDocs(consulta)).docs.map((item) => item.data());
   }
 
-  observarLista(atualizar: (ordens: OrdemDeServico[]) => void) {
+  observarLista(atualizar: (ordens: OrdemDeServico[]) => void, aoFalhar?: (erro: Error) => void) {
     const consulta = query(
       collection(obterBancoDeDados(), COLECOES.ORDENS_DE_SERVICO).withConverter(
         conversorOrdemDeServico,
       ),
       orderBy("criadaEm", "desc"),
     );
-    return onSnapshot(consulta, (resultado) =>
-      atualizar(resultado.docs.map((item) => item.data())),
+    return onSnapshot(
+      consulta,
+      (resultado) => atualizar(resultado.docs.map((item) => item.data())),
+      (erro) => aoFalhar?.(erro),
     );
   }
 
@@ -203,9 +233,33 @@ export class RepositorioDeOrdensNoFirestore implements RepositorioDeOrdensDeServ
     return (await getDocs(referencia)).docs.map((item) => item.data());
   }
 
-  observarOrdem(id: string, atualizar: (ordem: OrdemDeServico | null) => void) {
-    return onSnapshot(this.referenciaOrdem(id), (resultado) =>
-      atualizar(resultado.exists() ? resultado.data() : null),
+  observarProcessos(
+    idDaOrdem: string,
+    atualizar: (processos: ProcessoDeProducao[]) => void,
+    aoFalhar?: (erro: Error) => void,
+  ): Unsubscribe {
+    const referencia = collection(
+      obterBancoDeDados(),
+      COLECOES.ORDENS_DE_SERVICO,
+      idDaOrdem,
+      COLECOES.PROCESSOS,
+    ).withConverter(conversorProcesso);
+    return onSnapshot(
+      referencia,
+      (resultado) => atualizar(resultado.docs.map((item) => item.data())),
+      (erro) => aoFalhar?.(erro),
+    );
+  }
+
+  observarOrdem(
+    id: string,
+    atualizar: (ordem: OrdemDeServico | null) => void,
+    aoFalhar?: (erro: Error) => void,
+  ) {
+    return onSnapshot(
+      this.referenciaOrdem(id),
+      (resultado) => atualizar(resultado.exists() ? resultado.data() : null),
+      (erro) => aoFalhar?.(erro),
     );
   }
 
@@ -213,9 +267,12 @@ export class RepositorioDeOrdensNoFirestore implements RepositorioDeOrdensDeServ
     id: string,
     tipo: TipoProcessoProducao,
     atualizar: (processo: ProcessoDeProducao | null) => void,
+    aoFalhar?: (erro: Error) => void,
   ) {
-    return onSnapshot(this.referenciaProcesso(id, tipo), (resultado) =>
-      atualizar(resultado.exists() ? resultado.data() : null),
+    return onSnapshot(
+      this.referenciaProcesso(id, tipo),
+      (resultado) => atualizar(resultado.exists() ? resultado.data() : null),
+      (erro) => aoFalhar?.(erro),
     );
   }
 
@@ -323,6 +380,18 @@ export class RepositorioDeOrdensNoFirestore implements RepositorioDeOrdensDeServ
         ordemFoiConcluida: todosConcluidos,
         operacaoJaExistia: false,
       };
+    });
+  }
+
+  async confirmarSincronizacaoDoRegistro(idDaOperacao: string): Promise<void> {
+    const referencia = doc(obterBancoDeDados(), COLECOES.OPERACOES_IDEMPOTENTES, idDaOperacao);
+    await runTransaction(obterBancoDeDados(), async (transacao) => {
+      const snapshot = await transacao.get(referencia);
+      if (!snapshot.exists()) throw new Error("Operação idempotente não encontrada.");
+      if (snapshot.data().sincronizacaoDoRegistro === StatusSincronizacaoRegistro.CONCLUIDA) return;
+      transacao.update(referencia, {
+        sincronizacaoDoRegistro: StatusSincronizacaoRegistro.CONCLUIDA,
+      });
     });
   }
 

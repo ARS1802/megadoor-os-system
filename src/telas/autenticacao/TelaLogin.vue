@@ -5,6 +5,7 @@ import { usarSessao } from "@/composables/usarSessao";
 import { usarNotificacoes } from "@/composables/usarNotificacoes";
 import { firebaseEstaConfigurado } from "@/infraestrutura/firebase/configuracaoFirebase";
 import { destinoInicialDoCargo } from "@/roteador/destinosPorCargo";
+import { computed } from "vue";
 
 const formulario = reactive({ email: "", senha: "" });
 const enviando = ref(false);
@@ -13,6 +14,17 @@ const sessao = usarSessao();
 const roteador = useRouter();
 const rota = useRoute();
 const { notificar } = usarNotificacoes();
+const erroDaSessao = computed(() =>
+  rota.query.erroSessao === "perfil"
+    ? "A autenticação existe, mas o perfil do usuário não pôde ser carregado."
+    : "",
+);
+
+function destinoInternoSeguro(valor: unknown): string | null {
+  return typeof valor === "string" && valor.startsWith("/") && !valor.startsWith("//")
+    ? valor
+    : null;
+}
 
 async function entrar(): Promise<void> {
   enviando.value = true;
@@ -20,8 +32,7 @@ async function entrar(): Promise<void> {
   try {
     const usuario = await sessao.autenticar(formulario.email, formulario.senha);
     notificar(`Bem-vindo, ${usuario.nome}.`);
-    const redirecionar =
-      typeof rota.query.redirecionar === "string" ? rota.query.redirecionar : null;
+    const redirecionar = destinoInternoSeguro(rota.query.redirecionar);
     await roteador.push(redirecionar || destinoInicialDoCargo(usuario.cargo));
   } catch (falha) {
     erro.value = falha instanceof Error ? falha.message : "Não foi possível entrar.";
@@ -60,7 +71,9 @@ async function entrar(): Promise<void> {
             required
           />
         </div>
-        <p v-if="erro" class="field__error" role="alert">{{ erro }}</p>
+        <p v-if="erro || erroDaSessao" class="field__error" role="alert">
+          {{ erro || erroDaSessao }}
+        </p>
         <button class="btn btn--primary" type="submit" :disabled="enviando">
           {{ enviando ? "Entrando..." : "Entrar" }}
         </button>

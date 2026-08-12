@@ -1,6 +1,7 @@
 import { getApp, getApps, initializeApp, type FirebaseApp } from "firebase/app";
 import { connectAuthEmulator, getAuth, type Auth } from "firebase/auth";
 import { connectFirestoreEmulator, getFirestore, type Firestore } from "firebase/firestore";
+import { determinarModoDaAplicacao } from "@/infraestrutura/firebase/modoDaAplicacao";
 
 const configuracao = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -11,7 +12,13 @@ const configuracao = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
-export const firebaseEstaConfigurado = Boolean(configuracao.apiKey && configuracao.projectId);
+export const modoDaAplicacao = determinarModoDaAplicacao({
+  modoExplicito: import.meta.env.VITE_MODO_APLICACAO,
+  usarEmuladores: import.meta.env.VITE_USAR_EMULADORES,
+  configuracaoFirebase: configuracao,
+});
+export const firebaseEstaConfigurado = modoDaAplicacao !== "DEMO";
+export const usandoEmuladoresFirebase = modoDaAplicacao === "EMULADORES";
 
 let aplicativo: FirebaseApp | null = null;
 let autenticacao: Auth | null = null;
@@ -22,7 +29,7 @@ if (firebaseEstaConfigurado) {
   autenticacao = getAuth(aplicativo);
   bancoDeDados = getFirestore(aplicativo);
 
-  if (import.meta.env.VITE_USAR_EMULADORES === "true") {
+  if (usandoEmuladoresFirebase) {
     connectAuthEmulator(autenticacao, "http://127.0.0.1:9099", { disableWarnings: true });
     connectFirestoreEmulator(bancoDeDados, "127.0.0.1", 8080);
   }

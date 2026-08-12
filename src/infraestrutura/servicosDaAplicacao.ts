@@ -2,6 +2,8 @@ import { CriarOrdemDeServico } from "@/aplicacao/casosDeUso/CriarOrdemDeServico"
 import { AjustarContadorDeProducao } from "@/aplicacao/casosDeUso/AjustarContadorDeProducao";
 import { ForcarConclusaoDaOrdem } from "@/aplicacao/casosDeUso/ForcarConclusaoDaOrdem";
 import { ReenviarArquivoDoProcesso } from "@/aplicacao/casosDeUso/ReenviarArquivoDoProcesso";
+import { CriarCandidato } from "@/aplicacao/casosDeUso/CriarCandidato";
+import { CriarMaterial } from "@/aplicacao/casosDeUso/CriarMaterial";
 import {
   RepositorioDeCandidatosNoFirestore,
   RepositorioDeMateriaisNoFirestore,
@@ -23,6 +25,8 @@ export const repositorioDeOrdens = new RepositorioDeOrdensNoFirestore();
 export const servidorDeArquivos = new ServidorDeArquivosFastApi(() => idDoUsuarioAtual);
 
 export const casosDeUso = {
+  criarCandidato: new CriarCandidato(repositorioDeCandidatos),
+  criarMaterial: new CriarMaterial(repositorioDeMateriais, servidorDeArquivos),
   criarOrdem: new CriarOrdemDeServico(repositorioDeOrdens, servidorDeArquivos),
   ajustarContador: new AjustarContadorDeProducao(repositorioDeOrdens, servidorDeArquivos),
   forcarConclusao: new ForcarConclusaoDaOrdem(repositorioDeOrdens, servidorDeArquivos),

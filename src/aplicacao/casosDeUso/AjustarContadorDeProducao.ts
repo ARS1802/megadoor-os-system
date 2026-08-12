@@ -18,6 +18,12 @@ export class AjustarContadorDeProducao {
     nomeDoUsuario: string,
   ): Promise<ResultadoAjusteProducao> {
     const resultado = await this.ordens.ajustarProducao(entrada);
+    if (resultado.operacaoJaExistia) {
+      return {
+        ...resultado,
+        aviso: "Esta operação já havia sido aplicada. Nenhuma unidade foi adicionada novamente.",
+      };
+    }
     if (!resultado.operacaoJaExistia) {
       const linha = criarLinhaDeAjuste({
         idDaOperacao: entrada.idDaOperacao,
@@ -29,13 +35,14 @@ export class AjustarContadorDeProducao {
       });
       try {
         await this.arquivos.acrescentarRegistro(caminhoRegistro, linha);
+        await this.ordens.confirmarSincronizacaoDoRegistro(entrada.idDaOperacao);
       } catch {
         // A transação de produção já foi confirmada. Retornar sucesso
         // parcial evita que o operador repita o ajuste e duplique unidades.
         return {
           ...resultado,
           aviso:
-            "A produção foi salva, mas o registro de auditoria não foi confirmado. Não repita o ajuste.",
+            "A produção foi salva, mas a confirmação do registro de auditoria ficou pendente. Não repita o ajuste.",
         };
       }
     }

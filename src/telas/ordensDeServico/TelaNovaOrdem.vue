@@ -103,7 +103,15 @@ const podeCriarOrdem = computed(
     !enviando.value,
 );
 onMounted(async () => {
-  await dados.carregar();
+  try {
+    await dados.carregar();
+  } catch (falha) {
+    notificar(
+      falha instanceof Error ? falha.message : "Não foi possível carregar candidatos e materiais.",
+      "error",
+    );
+    return;
+  }
   const candidatoCriado = rota.query.candidatoCriado;
   if (
     typeof candidatoCriado === "string" &&

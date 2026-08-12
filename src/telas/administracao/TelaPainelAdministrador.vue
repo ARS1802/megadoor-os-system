@@ -8,7 +8,7 @@ import { usarNavegacaoContextual } from "@/composables/usarNavegacaoContextual";
 
 const dados = usarDados();
 const { comRetorno } = usarNavegacaoContextual();
-onMounted(() => void dados.carregar());
+onMounted(() => void dados.carregar().catch(() => undefined));
 const emProducao = computed(() =>
   dados.ordens.value.filter((item) =>
     [StatusOrdemDeServico.EM_PRODUCAO, StatusOrdemDeServico.PARADA].includes(item.status),
@@ -37,6 +37,10 @@ const emProducao = computed(() =>
         >Nova OS</RouterLink
       >
     </div>
-    <TabelaOrdens :ordens="emProducao" rotulo="Ordens em produção ou paradas" />
+    <p v-if="dados.carregando.value" class="state-message">Atualizando produção...</p>
+    <p v-else-if="dados.erro.value" class="state-message state-message--error" role="alert">
+      {{ dados.erro.value.message }}
+    </p>
+    <TabelaOrdens v-else :ordens="emProducao" rotulo="Ordens em produção ou paradas" />
   </main>
 </template>

@@ -3,14 +3,16 @@ import { computed, onMounted } from "vue";
 import AppHeader from "@/componentes/AppHeader.vue";
 import TabelaOrdens from "@/componentes/TabelaOrdens.vue";
 import TabelaDeDados, { type ColunaTabela } from "@/componentes/TabelaDeDados.vue";
-import { CargoUsuario, StatusOrdemDeServico, StatusPresenca } from "@/dominio/enumeracoes";
+import { StatusOrdemDeServico, StatusPresenca } from "@/dominio/enumeracoes";
 import { usarDados } from "@/composables/usarDados";
 import { usarNavegacaoContextual } from "@/composables/usarNavegacaoContextual";
 import { resumirProducaoPorCandidato } from "@/aplicacao/servicos/resumirProducaoPorCandidato";
+import { modoDaAplicacao } from "@/infraestrutura/firebase/configuracaoFirebase";
+import { criarPresencasDemonstrativas } from "@/infraestrutura/demonstracao/dadosDemonstrativos";
 
 const dados = usarDados();
 const { comRetorno } = usarNavegacaoContextual();
-onMounted(() => void dados.carregar());
+onMounted(() => void dados.carregar().catch(() => undefined));
 const recentes = computed(() =>
   dados.ordens.value.filter((item) => item.status !== StatusOrdemDeServico.CONCLUIDA).slice(0, 5),
 );
@@ -18,16 +20,7 @@ const concluidas = computed(() =>
   dados.ordens.value.filter((item) => item.status === StatusOrdemDeServico.CONCLUIDA).slice(0, 5),
 );
 const producao = computed(() => resumirProducaoPorCandidato(dados.ordens.value));
-const usuarios = [
-  {
-    id: "arthur",
-    nome: "Arthur Ramos Souza",
-    cargo: CargoUsuario.MAQUINISTA,
-    status: StatusPresenca.ONLINE,
-  },
-  { id: "edson", nome: "Edson", cargo: CargoUsuario.DESIGNER, status: StatusPresenca.ONLINE },
-  { id: "junior", nome: "Júnior", cargo: CargoUsuario.ADMIN, status: StatusPresenca.OFFLINE },
-];
+const usuarios = criarPresencasDemonstrativas(modoDaAplicacao);
 const colunasProducao: ColunaTabela[] = [
   { chave: "candidato", rotulo: "Candidato" },
   { chave: "metragem", rotulo: "Metragem produzida (m²)", alinhamento: "right" },
@@ -65,49 +58,55 @@ const colunasUsuarios: ColunaTabela[] = [
         >
       </div>
     </div>
-    <section class="card">
-      <h2>Ordens recentes</h2>
-      <TabelaOrdens :ordens="recentes" rotulo="Ordens recentes" />
-    </section>
-    <section class="card">
-      <h2>Ordens concluídas</h2>
-      <TabelaOrdens :ordens="concluidas" rotulo="Ordens concluídas" />
-    </section>
-    <section class="card">
-      <h2>Produção por Ordem de Serviço</h2>
-      <p class="muted">
-        Totais consolidados por candidato considerando todas as suas Ordens de Serviço.
-      </p>
-      <TabelaDeDados
-        :colunas="colunasProducao"
-        :linhas="producao"
-        rotulo="Produção consolidada por candidato"
-        @ativar-linha="() => undefined"
-        ><template #cell-metragem="{ valor }">{{
-          Number(valor).toLocaleString("pt-BR", { maximumFractionDigits: 2 })
-        }}</template></TabelaDeDados
-      >
-    </section>
-    <section class="card">
-      <h2>Usuários conectados agora</h2>
-      <TabelaDeDados
-        :colunas="colunasUsuarios"
-        :linhas="usuarios"
-        rotulo="Usuários e seus estados de conexão"
-        @ativar-linha="() => undefined"
-        ><template #cell-status="{ valor }"
-          ><span
-            class="presence-status"
-            :class="
-              valor === StatusPresenca.ONLINE
-                ? 'presence-status--online'
-                : 'presence-status--offline'
-            "
-            ><span aria-hidden="true">●</span>
-            {{ valor === StatusPresenca.ONLINE ? "Online" : "Offline" }}</span
-          ></template
-        ></TabelaDeDados
-      >
-    </section>
+    <p v-if="dados.carregando.value" class="state-message">Atualizando resumo...</p>
+    <p v-else-if="dados.erro.value" class="state-message state-message--error" role="alert">
+      {{ dados.erro.value.message }}
+    </p>
+    <template v-else>
+      <section class="card">
+        <h2>Ordens recentes</h2>
+        <TabelaOrdens :ordens="recentes" rotulo="Ordens recentes" />
+      </section>
+      <section class="card">
+        <h2>Ordens concluídas</h2>
+        <TabelaOrdens :ordens="concluidas" rotulo="Ordens concluídas" />
+      </section>
+      <section class="card">
+        <h2>Produção por Ordem de Serviço</h2>
+        <p class="muted">
+          Totais consolidados por candidato considerando todas as suas Ordens de Serviço.
+        </p>
+        <TabelaDeDados
+          :colunas="colunasProducao"
+          :linhas="producao"
+          rotulo="Produção consolidada por candidato"
+          @ativar-linha="() => undefined"
+          ><template #cell-metragem="{ valor }">{{
+            Number(valor).toLocaleString("pt-BR", { maximumFractionDigits: 2 })
+          }}</template></TabelaDeDados
+        >
+      </section>
+      <section class="card">
+        <h2>Usuários conectados agora</h2>
+        <TabelaDeDados
+          :colunas="colunasUsuarios"
+          :linhas="usuarios"
+          rotulo="Usuários e seus estados de conexão"
+          @ativar-linha="() => undefined"
+          ><template #cell-status="{ valor }"
+            ><span
+              class="presence-status"
+              :class="
+                valor === StatusPresenca.ONLINE
+                  ? 'presence-status--online'
+                  : 'presence-status--offline'
+              "
+              ><span aria-hidden="true">●</span>
+              {{ valor === StatusPresenca.ONLINE ? "Online" : "Offline" }}</span
+            ></template
+          ></TabelaDeDados
+        >
+      </section>
+    </template>
   </main>
 </template>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import AppHeader from "@/componentes/AppHeader.vue";
 import AppPopup from "@/componentes/AppPopup.vue";
@@ -30,6 +30,7 @@ import {
 } from "@/aplicacao/servicos/validacaoDeArquivoDoProcesso";
 import {
   casosDeUso,
+  repositorioDeOrdens,
   repositorioDeUsuarios,
   servidorDeArquivos,
 } from "@/infraestrutura/servicosDaAplicacao";
@@ -82,6 +83,8 @@ const colunas: ColunaTabela[] = [
 ];
 let urlTemporariaDaEtiqueta = "";
 let versaoDoCarregamentoDaEtiqueta = 0;
+let versaoDoCarregamentoDaObservacao = 0;
+const cancelarObservacoesDosProcessos: (() => void)[] = [];
 const consultasDeMetadados = new Map<
   string,
   ReturnType<typeof servidorDeArquivos.obterMetadadosDoArquivo>
@@ -112,24 +115,84 @@ async function hidratarMetadadosDoArquivo(processo = arquivo.value): Promise<voi
   }
 }
 
-onMounted(async () => {
-  await dados.carregar();
-  if (!ordem.value) return;
-  await Promise.all(processos.value.map((processo) => hidratarMetadadosDoArquivo(processo)));
+async function carregarObservacaoDaOrdem(
+  caminho: string,
+  observacaoDemonstrativa?: string,
+): Promise<void> {
+  const versaoAtual = ++versaoDoCarregamentoDaObservacao;
+  carregandoObservacao.value = true;
+
   try {
-    observacao.value = firebaseEstaConfigurado
-      ? await servidorDeArquivos.lerTexto(ordem.value.caminhoObservacao)
-      : (ordem.value.observacaoDemonstrativa ?? "");
+    const texto = firebaseEstaConfigurado
+      ? await servidorDeArquivos.lerTexto(caminho)
+      : (observacaoDemonstrativa ?? "");
+    if (versaoAtual === versaoDoCarregamentoDaObservacao) observacao.value = texto;
   } catch {
+    if (versaoAtual !== versaoDoCarregamentoDaObservacao) return;
     observacao.value = "";
     notificar("Não foi possível carregar observacao.txt.", "error");
   } finally {
-    carregandoObservacao.value = false;
+    if (versaoAtual === versaoDoCarregamentoDaObservacao) {
+      carregandoObservacao.value = false;
+    }
   }
+}
+
+watch(
+  [() => ordem.value?.caminhoObservacao, () => ordem.value?.observacaoDemonstrativa],
+  ([caminho, observacaoDemonstrativa]) => {
+    if (!caminho) {
+      versaoDoCarregamentoDaObservacao += 1;
+      observacao.value = "";
+      return;
+    }
+    void carregarObservacaoDaOrdem(caminho, observacaoDemonstrativa);
+  },
+  { immediate: true },
+);
+
+onMounted(async () => {
+  try {
+    await dados.carregar();
+  } catch {
+    return;
+  }
+  if (!ordem.value) return;
+  if (firebaseEstaConfigurado) {
+    for (const processoAtual of processos.value) {
+      cancelarObservacoesDosProcessos.push(
+        repositorioDeOrdens.observarProcesso(
+          id.value,
+          processoAtual.tipo,
+          (novo) => {
+            if (!novo) return;
+            const alvo = processos.value.find((item) => item.tipo === novo.tipo);
+            if (!alvo) return;
+            const caminhoFoiAlterado = alvo.caminhoNoServidor !== novo.arquivo.caminhoNoServidor;
+            Object.assign(alvo, {
+              unidadesProduzidas: novo.unidadesProduzidas,
+              metaDeUnidades: novo.metaDeUnidades,
+              nomeArquivo: novo.arquivo.nomeOriginal,
+              extensao: novo.arquivo.extensao,
+              tamanhoEmBytes: novo.arquivo.tamanhoEmBytes,
+              caminhoNoServidor: novo.arquivo.caminhoNoServidor,
+              modificadoEmPersistido: novo.arquivo.modificadoEm,
+              ...(caminhoFoiAlterado ? { modificadoEm: novo.arquivo.modificadoEm } : {}),
+            });
+            if (caminhoFoiAlterado) void hidratarMetadadosDoArquivo(alvo);
+          },
+          (falha) => notificar(falha.message, "error"),
+        ),
+      );
+    }
+  }
+  await Promise.all(processos.value.map((processo) => hidratarMetadadosDoArquivo(processo)));
 });
 
 onBeforeUnmount(() => {
+  cancelarObservacoesDosProcessos.splice(0).forEach((cancelar) => cancelar());
   versaoDoCarregamentoDaEtiqueta += 1;
+  versaoDoCarregamentoDaObservacao += 1;
   if (urlTemporariaDaEtiqueta) URL.revokeObjectURL(urlTemporariaDaEtiqueta);
 });
 
@@ -604,6 +667,15 @@ async function forcarConclusao(): Promise<void> {
         </button></template
       ></AppPopup
     >
+  </main>
+  <main v-else-if="dados.erro.value" class="page-shell">
+    <p class="state-message state-message--error" role="alert">
+      {{ dados.erro.value.message }}
+    </p>
+    <button class="btn btn--secondary" @click="roteador.back()">Voltar</button>
+  </main>
+  <main v-else-if="dados.carregando.value || !dados.carregado.value" class="page-shell">
+    <p class="state-message">Carregando Ordem de Serviço...</p>
   </main>
   <main v-else class="page-shell">
     <p class="state-message">Ordem de Serviço não encontrada.</p>

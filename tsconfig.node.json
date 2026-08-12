@@ -10,6 +10,7 @@
     "vite.config.ts",
     "vitest.config.ts",
     "vitest.regras-firestore.config.ts",
-    "playwright.config.ts"
+    "playwright.config.ts",
+    "playwright.real.config.ts"
   ]
 }

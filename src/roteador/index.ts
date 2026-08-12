@@ -105,10 +105,14 @@ export const roteador = createRouter({ history: createWebHashHistory(), routes: 
 
 roteador.beforeEach(async (destino) => {
   const sessao = usarSessao();
-  await sessao.inicializar();
+  try {
+    await sessao.inicializar();
+  } catch {
+    if (destino.meta.publica) return true;
+    return { name: "login", query: { erroSessao: "perfil" } };
+  }
   if (destino.meta.publica) {
-    if (destino.name === "login" && sessao.usuarioAtual.value)
-      return destinoInicialDoCargo(sessao.usuarioAtual.value.cargo);
+    if (sessao.usuarioAtual.value) return destinoInicialDoCargo(sessao.usuarioAtual.value.cargo);
     return true;
   }
   if (!sessao.usuarioAtual.value)

@@ -2,7 +2,6 @@
 import { computed, reactive, ref } from "vue";
 import { useRouter, type RouteLocationRaw } from "vue-router";
 import AppHeader from "@/componentes/AppHeader.vue";
-import { Candidato } from "@/dominio/entidades/Candidato";
 import { TipoDocumentoFiscal } from "@/dominio/enumeracoes";
 import { usarDados } from "@/composables/usarDados";
 import { usarNavegacaoContextual } from "@/composables/usarNavegacaoContextual";
@@ -10,10 +9,7 @@ import { usarNotificacoes } from "@/composables/usarNotificacoes";
 import { usarSessao } from "@/composables/usarSessao";
 import { esquemaFormularioNovoCandidato } from "@/esquemas/formularios";
 import { firebaseEstaConfigurado } from "@/infraestrutura/firebase/configuracaoFirebase";
-import {
-  repositorioDeCandidatos,
-  repositorioDeUsuarios,
-} from "@/infraestrutura/servicosDaAplicacao";
+import { repositorioDeUsuarios, casosDeUso } from "@/infraestrutura/servicosDaAplicacao";
 
 const formulario = reactive({
   nome: "",
@@ -70,20 +66,16 @@ async function salvar(): Promise<void> {
     let candidatoId: string;
     const numeroDocumento = resultado.data.numeroDocumentoFiscal || undefined;
     if (firebaseEstaConfigurado) {
-      const referencia = repositorioDeCandidatos.gerarReferencia();
-      await repositorioDeCandidatos.criar(
-        new Candidato({
-          id: referencia.id,
-          nome: resultado.data.nome,
-          partido: resultado.data.partido || undefined,
-          documentoFiscal: numeroDocumento
-            ? { tipo: resultado.data.tipoDocumentoFiscal, numero: numeroDocumento }
-            : undefined,
-          observacoes: resultado.data.observacoes || undefined,
-          referenciaUsuarioCriador: repositorioDeUsuarios.referencia(usuario.id),
-        }),
-      );
-      candidatoId = referencia.id;
+      const candidato = await casosDeUso.criarCandidato.executar({
+        nome: resultado.data.nome,
+        partido: resultado.data.partido || undefined,
+        documentoFiscal: numeroDocumento
+          ? { tipo: resultado.data.tipoDocumentoFiscal, numero: numeroDocumento }
+          : undefined,
+        observacoes: resultado.data.observacoes || undefined,
+        referenciaUsuarioCriador: repositorioDeUsuarios.referencia(usuario.id),
+      });
+      candidatoId = candidato.id;
       await dados.carregar();
     } else {
       candidatoId = dados.adicionarCandidatoDemonstrativo({

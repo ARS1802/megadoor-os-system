@@ -20,6 +20,10 @@ export interface RepositorioDeUsuarios {
 export interface RepositorioDeCandidatos {
   criar(candidato: Candidato): Promise<void>;
   listarAtivos(): Promise<Candidato[]>;
+  observarAtivos(
+    atualizar: (candidatos: Candidato[]) => void,
+    aoFalhar?: (erro: Error) => void,
+  ): Unsubscribe;
   obterPorReferencia(referencia: DocumentReference): Promise<Candidato | null>;
   gerarReferencia(): DocumentReference;
 }
@@ -27,6 +31,10 @@ export interface RepositorioDeCandidatos {
 export interface RepositorioDeMateriais {
   criarComNomeUnico(material: Material): Promise<void>;
   listarAtivos(): Promise<Material[]>;
+  observarAtivos(
+    atualizar: (materiais: Material[]) => void,
+    aoFalhar?: (erro: Error) => void,
+  ): Unsubscribe;
   obterPorReferencia(referencia: DocumentReference): Promise<Material | null>;
   gerarReferencia(): DocumentReference;
 }
@@ -85,15 +93,29 @@ export interface RepositorioDeOrdensDeServico {
   criarComRelacionamentos(ordem: OrdemDeServico, processos: ProcessoDeProducao[]): Promise<void>;
   obterPorId(id: string): Promise<OrdemDeServico | null>;
   listar(): Promise<OrdemDeServico[]>;
-  observarLista(atualizar: (ordens: OrdemDeServico[]) => void): Unsubscribe;
+  observarLista(
+    atualizar: (ordens: OrdemDeServico[]) => void,
+    aoFalhar?: (erro: Error) => void,
+  ): Unsubscribe;
   listarProcessos(idDaOrdem: string): Promise<ProcessoDeProducao[]>;
-  observarOrdem(idDaOrdem: string, atualizar: (ordem: OrdemDeServico | null) => void): Unsubscribe;
+  observarProcessos(
+    idDaOrdem: string,
+    atualizar: (processos: ProcessoDeProducao[]) => void,
+    aoFalhar?: (erro: Error) => void,
+  ): Unsubscribe;
+  observarOrdem(
+    idDaOrdem: string,
+    atualizar: (ordem: OrdemDeServico | null) => void,
+    aoFalhar?: (erro: Error) => void,
+  ): Unsubscribe;
   observarProcesso(
     idDaOrdem: string,
     tipo: TipoProcessoProducao,
     atualizar: (processo: ProcessoDeProducao | null) => void,
+    aoFalhar?: (erro: Error) => void,
   ): Unsubscribe;
   ajustarProducao(entrada: EntradaAjusteProducao): Promise<ResultadoAjusteProducao>;
+  confirmarSincronizacaoDoRegistro(idDaOperacao: string): Promise<void>;
   substituirArquivoDoProcesso(
     entrada: EntradaSubstituicaoArquivoDoProcesso,
   ): Promise<ResultadoSubstituicaoArquivoDoProcesso>;

@@ -13,6 +13,12 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./testes/configuracao.ts"],
-    exclude: ["testes/e2e/**", "testes/firestore/**", "node_modules/**", "dist/**"],
+    exclude: [
+      "testes/e2e/**",
+      "testes/e2e-real/**",
+      "testes/firestore/**",
+      "node_modules/**",
+      "dist/**",
+    ],
   },
 });

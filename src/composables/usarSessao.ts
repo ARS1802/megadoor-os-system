@@ -1,6 +1,7 @@
 import { readonly, ref } from "vue";
 import {
   createUserWithEmailAndPassword,
+  deleteUser,
   onAuthStateChanged,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
@@ -20,6 +21,28 @@ import {
 const CHAVE_SESSAO_DEMO = "megadoor-sessao-demo";
 const usuarioAtual = ref<Usuario | null>(null);
 const inicializada = ref(false);
+const erroDeInicializacao = ref<Error | null>(null);
+let promessaDeInicializacao: Promise<void> | null = null;
+let promessaDeCadastroReal: Promise<Usuario> | null = null;
+let observadorDaAutenticacaoInstalado = false;
+let versaoDoEventoDeAutenticacao = 0;
+const observadoresDeMudancaDaSessao = new Set<() => void>();
+
+function comoErro(falha: unknown, mensagem: string): Error {
+  return falha instanceof Error ? falha : new Error(mensagem);
+}
+
+function limparSessaoAtual(): void {
+  const haviaUsuario = Boolean(usuarioAtual.value);
+  usuarioAtual.value = null;
+  definirIdDoUsuarioParaServidor(null);
+  if (haviaUsuario) observadoresDeMudancaDaSessao.forEach((observar) => observar());
+}
+
+export function observarFimDaSessao(observar: () => void): () => void {
+  observadoresDeMudancaDaSessao.add(observar);
+  return () => observadoresDeMudancaDaSessao.delete(observar);
+}
 
 function cargoDemonstrativo(email: string): CargoUsuario {
   const texto = email.toLowerCase();
@@ -29,7 +52,11 @@ function cargoDemonstrativo(email: string): CargoUsuario {
 }
 
 async function inicializar(): Promise<void> {
-  if (inicializada.value) return;
+  if (inicializada.value) {
+    if (erroDeInicializacao.value) throw erroDeInicializacao.value;
+    return;
+  }
+  if (promessaDeInicializacao) return promessaDeInicializacao;
   // Sessões demonstrativas antigas eram persistidas entre execuções. A chave
   // legada é descartada para que um novo acesso sempre comece pelo Login.
   localStorage.removeItem(CHAVE_SESSAO_DEMO);
@@ -47,28 +74,86 @@ async function inicializar(): Promise<void> {
     inicializada.value = true;
     return;
   }
-  await new Promise<void>((resolver) => {
-    const cancelar = onAuthStateChanged(obterAutenticacao(), async (autenticado) => {
-      usuarioAtual.value = autenticado
-        ? await repositorioDeUsuarios.obterPorId(autenticado.uid)
-        : null;
-      // A API de arquivos só recebe a identidade depois que o perfil foi
-      // confirmado em `usuarios/{UID}`. Estar autenticado, sem perfil válido,
-      // não libera chamadas ao servidor de arquivos.
-      definirIdDoUsuarioParaServidor(usuarioAtual.value?.id ?? null);
+  promessaDeInicializacao = new Promise<void>((resolver, rejeitar) => {
+    let primeiroEvento = true;
+    const concluirPrimeiroEvento = (falha?: Error) => {
+      if (!primeiroEvento) return;
+      primeiroEvento = false;
       inicializada.value = true;
-      cancelar();
-      resolver();
-    });
+      erroDeInicializacao.value = falha ?? null;
+      if (falha) rejeitar(falha);
+      else resolver();
+    };
+
+    if (observadorDaAutenticacaoInstalado) {
+      concluirPrimeiroEvento();
+      return;
+    }
+    observadorDaAutenticacaoInstalado = true;
+    onAuthStateChanged(
+      obterAutenticacao(),
+      async (autenticado) => {
+        const versaoDoEvento = ++versaoDoEventoDeAutenticacao;
+        try {
+          if (!autenticado) {
+            limparSessaoAtual();
+            concluirPrimeiroEvento();
+            return;
+          }
+          const cadastroEmAndamento = promessaDeCadastroReal;
+          if (cadastroEmAndamento) {
+            const usuarioCadastrado = await cadastroEmAndamento;
+            if (versaoDoEvento !== versaoDoEventoDeAutenticacao) return;
+            if (usuarioCadastrado.id === autenticado.uid) {
+              usuarioAtual.value = usuarioCadastrado;
+              definirIdDoUsuarioParaServidor(usuarioCadastrado.id);
+              erroDeInicializacao.value = null;
+              concluirPrimeiroEvento();
+              return;
+            }
+          }
+          const perfil = await repositorioDeUsuarios.obterPorId(autenticado.uid);
+          if (versaoDoEvento !== versaoDoEventoDeAutenticacao) return;
+          if (!perfil) throw new Error("O perfil deste usuário não foi encontrado.");
+          if (!perfil.ativo) throw new Error("Este usuário está inativo.");
+          usuarioAtual.value = perfil;
+          definirIdDoUsuarioParaServidor(perfil.id);
+          erroDeInicializacao.value = null;
+          concluirPrimeiroEvento();
+        } catch (falha) {
+          if (versaoDoEvento !== versaoDoEventoDeAutenticacao) return;
+          limparSessaoAtual();
+          const erro = comoErro(falha, "Não foi possível carregar o perfil do usuário.");
+          concluirPrimeiroEvento(erro);
+        }
+      },
+      (falha) => {
+        limparSessaoAtual();
+        concluirPrimeiroEvento(comoErro(falha, "Não foi possível restaurar a sessão."));
+      },
+    );
   });
+  try {
+    await promessaDeInicializacao;
+  } finally {
+    promessaDeInicializacao = null;
+  }
 }
 
 async function autenticar(email: string, senha: string): Promise<Usuario> {
   if (firebaseEstaConfigurado) {
     const credencial = await signInWithEmailAndPassword(obterAutenticacao(), email, senha);
-    const usuario = await repositorioDeUsuarios.obterPorId(credencial.user.uid);
-    if (!usuario) throw new Error("O perfil deste usuário não foi encontrado.");
-    usuarioAtual.value = usuario;
+    try {
+      const usuario = await repositorioDeUsuarios.obterPorId(credencial.user.uid);
+      if (!usuario) throw new Error("O perfil deste usuário não foi encontrado.");
+      if (!usuario.ativo) throw new Error("Este usuário está inativo.");
+      usuarioAtual.value = usuario;
+      erroDeInicializacao.value = null;
+    } catch (falha) {
+      await signOut(obterAutenticacao());
+      limparSessaoAtual();
+      throw falha;
+    }
   } else {
     usuarioAtual.value = new Usuario({
       id: `demo-${cargoDemonstrativo(email).toLowerCase()}`,
@@ -89,14 +174,39 @@ async function cadastrar(
   cargo: CargoUsuario,
 ): Promise<Usuario> {
   if (firebaseEstaConfigurado) {
-    const credencial = await createUserWithEmailAndPassword(obterAutenticacao(), email, senha);
-    const usuario = new Usuario({ id: credencial.user.uid, nome, email, cargo });
-    await repositorioDeUsuarios.salvar(usuario);
-    usuarioAtual.value = usuario;
-  } else {
-    usuarioAtual.value = new Usuario({ id: `demo-${crypto.randomUUID()}`, nome, email, cargo });
-    sessionStorage.setItem(CHAVE_SESSAO_DEMO, JSON.stringify(usuarioAtual.value));
+    if (promessaDeCadastroReal) throw new Error("Já existe um cadastro em andamento.");
+    const executarCadastro = async () => {
+      const credencial = await createUserWithEmailAndPassword(obterAutenticacao(), email, senha);
+      const usuario = new Usuario({ id: credencial.user.uid, nome, email, cargo });
+      try {
+        await repositorioDeUsuarios.salvar(usuario);
+        usuarioAtual.value = usuario;
+        erroDeInicializacao.value = null;
+        definirIdDoUsuarioParaServidor(usuario.id);
+        return usuario;
+      } catch (falha) {
+        try {
+          await deleteUser(credencial.user);
+        } catch {
+          // A falha que explica por que o cadastro não pôde ser concluído é a
+          // persistência do perfil. A compensação não deve escondê-la.
+        } finally {
+          limparSessaoAtual();
+        }
+        throw falha;
+      }
+    };
+    const cadastroAtual = executarCadastro();
+    promessaDeCadastroReal = cadastroAtual;
+    try {
+      return await cadastroAtual;
+    } finally {
+      if (promessaDeCadastroReal === cadastroAtual) promessaDeCadastroReal = null;
+    }
   }
+
+  usuarioAtual.value = new Usuario({ id: `demo-${crypto.randomUUID()}`, nome, email, cargo });
+  sessionStorage.setItem(CHAVE_SESSAO_DEMO, JSON.stringify(usuarioAtual.value));
   definirIdDoUsuarioParaServidor(usuarioAtual.value.id);
   return usuarioAtual.value;
 }
@@ -109,14 +219,14 @@ async function sair(): Promise<void> {
   if (firebaseEstaConfigurado) await signOut(obterAutenticacao());
   sessionStorage.removeItem(CHAVE_SESSAO_DEMO);
   localStorage.removeItem(CHAVE_SESSAO_DEMO);
-  usuarioAtual.value = null;
-  definirIdDoUsuarioParaServidor(null);
+  limparSessaoAtual();
 }
 
 export function usarSessao() {
   return {
     usuarioAtual: readonly(usuarioAtual),
     inicializada: readonly(inicializada),
+    erroDeInicializacao: readonly(erroDeInicializacao),
     inicializar,
     autenticar,
     cadastrar,

@@ -49,3 +49,28 @@ test("sessão demonstrativa sobrevive ao reload, mas não a uma nova execução"
   await expect(novaPagina.getByRole("button", { name: "Entrar" })).toBeVisible();
   await novaExecucao.close();
 });
+
+test("logout remove a sessão e volta a proteger as rotas privadas", async ({ page }) => {
+  await page.goto("/#/");
+  await expect(page.getByText("Modo demonstrativo:")).toBeVisible();
+  await page.getByLabel("E-mail").fill("designer@megadoor.local");
+  await page.getByLabel("Senha", { exact: true }).fill("senha-demo");
+  await page.getByRole("button", { name: "Entrar" }).click();
+  await expect(page).toHaveURL(/#\/designer$/);
+
+  expect(
+    await page.evaluate((chave) => sessionStorage.getItem(chave), CHAVE_SESSAO_DEMO),
+  ).not.toBeNull();
+
+  await page.goto("/#/configuracoes");
+  await page.getByRole("button", { name: "Desconectar" }).click();
+
+  await expect(page).toHaveURL(/#\/$/);
+  expect(
+    await page.evaluate((chave) => sessionStorage.getItem(chave), CHAVE_SESSAO_DEMO),
+  ).toBeNull();
+
+  await page.goto("/#/designer");
+  await expect(page).toHaveURL(/#\/\?redirecionar=\/designer$/);
+  await expect(page.getByRole("button", { name: "Entrar" })).toBeVisible();
+});
