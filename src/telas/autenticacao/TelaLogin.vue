@@ -6,6 +6,7 @@ import { usarNotificacoes } from "@/composables/usarNotificacoes";
 import { firebaseEstaConfigurado } from "@/infraestrutura/firebase/configuracaoFirebase";
 import { destinoInicialDoCargo } from "@/roteador/destinosPorCargo";
 import { computed } from "vue";
+import logotipoMegadoor from "../../../assets/images/megadoor-logo.svg";
 
 const formulario = reactive({ email: "", senha: "" });
 const enviando = ref(false);
@@ -46,7 +47,7 @@ async function entrar(): Promise<void> {
   <main class="auth-page">
     <section class="auth-card" aria-labelledby="page-title">
       <div class="brand-block">
-        <img src="/assets/images/megadoor-logo.svg" alt="Megadoor" width="210" />
+        <img :src="logotipoMegadoor" alt="Megadoor" width="210" />
         <h1 id="page-title">Produção Campanha</h1>
         <p>Megadoor OS</p>
       </div>

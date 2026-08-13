@@ -10,3 +10,11 @@ test-results/
 firebase-debug.log
 firestore-debug.log
 *.tsbuildinfo
+
+# Artefatos locais do empacotamento (as fontes em packaging/ continuam versionadas)
+packaging/.cache/
+packaging/windows/payload/
+packaging/windows/generated/
+packaging/windows/output/
+packaging/linux/payload/
+release/

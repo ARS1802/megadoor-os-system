@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+IFS=$'\n\t'
+
+NOME="Megadoor"
+ID_APLICACAO="br.com.megadoor.os"
+REMOVER_DADOS=""
+APENAS_PARAR=0
+
+uso() {
+  printf '%s\n' \
+    "Uso: megadoor-uninstall [--keep-data | --remove-data | --stop-only]" \
+    "  --keep-data    remove a aplicação e preserva configuração e logs" \
+    "  --remove-data  remove também configuração, estado e logs" \
+    "  --stop-only    encerra somente o servidor local desta instalação"
+}
+
+for argumento in "$@"; do
+  case "$argumento" in
+    --keep-data) REMOVER_DADOS=0 ;;
+    --remove-data) REMOVER_DADOS=1 ;;
+    --stop-only) APENAS_PARAR=1 ;;
+    --help|-h)
+      uso
+      exit 0
+      ;;
+    *)
+      printf 'Argumento desconhecido: %s\n' "$argumento" >&2
+      uso >&2
+      exit 2
+      ;;
+  esac
+done
+
+if (( EUID == 0 )); then
+  printf '%s\n' "Não execute o desinstalador do Megadoor com sudo." >&2
+  exit 1
+fi
+
+CAMINHO_REAL="$(readlink -f -- "$0")"
+RAIZ_DA_VERSAO="$(CDPATH= cd -- "$(dirname -- "$CAMINHO_REAL")/.." && pwd -P)"
+RAIZ_DA_INSTALACAO="$(CDPATH= cd -- "$RAIZ_DA_VERSAO/../.." && pwd -P)"
+
+if [[ -n "${XDG_DATA_HOME:-}" && "$XDG_DATA_HOME" == /* ]]; then
+  RAIZ_DOS_DADOS="$XDG_DATA_HOME"
+else
+  RAIZ_DOS_DADOS="$HOME/.local/share"
+fi
+if [[ -n "${XDG_CONFIG_HOME:-}" && "$XDG_CONFIG_HOME" == /* ]]; then
+  RAIZ_DA_CONFIGURACAO="$XDG_CONFIG_HOME/megadoor"
+else
+  RAIZ_DA_CONFIGURACAO="$HOME/.config/megadoor"
+fi
+if [[ -n "${XDG_STATE_HOME:-}" && "$XDG_STATE_HOME" == /* ]]; then
+  RAIZ_DO_ESTADO="$XDG_STATE_HOME/megadoor"
+else
+  RAIZ_DO_ESTADO="$HOME/.local/state/megadoor"
+fi
+if [[ -n "${XDG_BIN_HOME:-}" && "$XDG_BIN_HOME" == /* ]]; then
+  DIRETORIO_BIN="$XDG_BIN_HOME"
+else
+  DIRETORIO_BIN="$HOME/.local/bin"
+fi
+
+RAIZ_ESPERADA="$RAIZ_DOS_DADOS/megadoor"
+if [[ "$RAIZ_DA_INSTALACAO" != "$RAIZ_ESPERADA" || "$RAIZ_DA_INSTALACAO" == "/" ]]; then
+  printf '%s\n' "A raiz da instalação não corresponde ao diretório seguro esperado." >&2
+  exit 1
+fi
+
+NODE_PRIVADO="$RAIZ_DA_VERSAO/runtime/bin/node"
+LAUNCHER="$RAIZ_DA_VERSAO/bin/linux-launcher.mjs"
+if [[ -x "$NODE_PRIVADO" && -r "$LAUNCHER" ]]; then
+  "$NODE_PRIVADO" "$LAUNCHER" --stop-only || {
+    printf '%s\n' "Não foi possível confirmar o encerramento do servidor local." >&2
+    exit 1
+  }
+fi
+
+if (( APENAS_PARAR == 1 )); then
+  exit 0
+fi
+
+if [[ -z "$REMOVER_DADOS" ]]; then
+  if [[ -t 0 ]]; then
+    printf 'Deseja remover também configurações e logs? [s/N] '
+    read -r resposta
+    [[ "$resposta" =~ ^[Ss]$ ]] && REMOVER_DADOS=1 || REMOVER_DADOS=0
+  else
+    REMOVER_DADOS=0
+  fi
+fi
+
+ID_INSTALACAO=""
+if [[ -r "$RAIZ_DA_INSTALACAO/install-state.json" ]]; then
+  ID_INSTALACAO="$(
+    "$NODE_PRIVADO" -e '
+      const fs = require("fs");
+      const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+      if (typeof value.installationId !== "string") process.exit(1);
+      process.stdout.write(value.installationId);
+    ' "$RAIZ_DA_INSTALACAO/install-state.json"
+  )" || ID_INSTALACAO=""
+fi
+
+remover_link_da_instalacao() {
+  local caminho="$1"
+  [[ -L "$caminho" ]] || return 0
+  local destino
+  destino="$(readlink -f -- "$caminho" 2>/dev/null || true)"
+  if [[ "$destino" == "$RAIZ_DA_INSTALACAO/"* ]]; then
+    rm -f -- "$caminho"
+  fi
+}
+
+remover_entrada_desktop() {
+  local caminho="$1"
+  [[ -f "$caminho" && -n "$ID_INSTALACAO" ]] || return 0
+  if grep -Fqx -- "X-Megadoor-Install-Id=$ID_INSTALACAO" "$caminho"; then
+    rm -f -- "$caminho"
+  fi
+}
+
+remover_link_da_instalacao "$DIRETORIO_BIN/megadoor"
+remover_link_da_instalacao "$DIRETORIO_BIN/megadoor-uninstall"
+remover_entrada_desktop "$RAIZ_DOS_DADOS/applications/$ID_APLICACAO.desktop"
+remover_entrada_desktop "$RAIZ_DOS_DADOS/applications/$ID_APLICACAO.uninstall.desktop"
+
+if command -v xdg-user-dir >/dev/null 2>&1; then
+  DIRETORIO_DESKTOP="$(xdg-user-dir DESKTOP 2>/dev/null || true)"
+  if [[ "$DIRETORIO_DESKTOP" == /* ]]; then
+    remover_entrada_desktop "$DIRETORIO_DESKTOP/$NOME.desktop"
+  fi
+fi
+
+rm -f -- "$RAIZ_DOS_DADOS/icons/hicolor/scalable/apps/$ID_APLICACAO.svg"
+rm -rf -- "$RAIZ_DA_INSTALACAO"
+
+if (( REMOVER_DADOS == 1 )); then
+  rm -rf -- "$RAIZ_DA_CONFIGURACAO" "$RAIZ_DO_ESTADO"
+else
+  rm -f -- "$RAIZ_DO_ESTADO/server-state.json"
+fi
+
+command -v update-desktop-database >/dev/null 2>&1 && \
+  update-desktop-database "$RAIZ_DOS_DADOS/applications" >/dev/null 2>&1 || true
+
+printf '%s\n' "$NOME foi desinstalado."
+if (( REMOVER_DADOS == 0 )); then
+  printf '%s\n' "A configuração e os logs foram preservados em $RAIZ_DA_CONFIGURACAO e $RAIZ_DO_ESTADO."
+fi

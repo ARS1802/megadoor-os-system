@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "application": {
+    "id": "br.com.megadoor.os",
+    "name": "Megadoor",
+    "publisher": "Megadoor",
+    "version": "1.0.0"
+  },
+  "repository": {
+    "url": "https://github.com/ARS1802/megadoor-os-system",
+    "releaseTag": "v1.0.0"
+  },
+  "runtime": {
+    "nodeVersion": "24.19.0",
+    "nodeWindowsX64Sha256": "57f71ab3652e797d84acddc79c81cc9ff1c6ddb2a1974cdb83f00fee9bff4c73",
+    "nodeLinuxX64Sha256": "14b342e71204f811bde6153be8e04b62aef63c236fef92b55f9c83154b409647"
+  },
+  "windows": {
+    "architecture": "x64",
+    "localApplicationPort": 41731,
+    "installDirectoryName": "Megadoor",
+    "innoSetupVersion": "7.1.0",
+    "innoSetupWindowsX64Sha256": "0362a383ed217d4c4239b5933866dd96d3eb2102737da92f80f6057a4b40df2f"
+  },
+  "linux": {
+    "architecture": "x64",
+    "localApplicationPort": 41731,
+    "installDirectoryName": "megadoor"
+  },
+  "firebase": {
+    "projectId": "megadoor-os-system"
+  },
+  "server": {
+    "defaultPort": 8443
+  },
+  "configurationSchemaVersion": 1,
+  "manifestSchemaVersion": 1
+}
