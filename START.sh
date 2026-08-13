@@ -2,6 +2,7 @@
 set -Eeuo pipefail
 
 RAIZ_DO_FRONT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RUNTIME_NODE_LOCAL="$RAIZ_DO_FRONT/.runtime/node/bin"
 PORTA_FRONT=5173
 PORTAS_EMULADORES=(4000 4400 4500 8080 9099 9150)
 URL_APLICACAO="http://127.0.0.1:${PORTA_FRONT}"
@@ -69,6 +70,15 @@ for argumento in "$@"; do
 done
 
 cd "$RAIZ_DO_FRONT"
+
+[[ "$RAIZ_DO_FRONT" != *%* ]] ||
+  falhar "Mova a pasta do Megadoor para um caminho sem o caractere %, que não é suportado pelo servidor local do Vite."
+
+# Os instaladores mantêm um Node privado dentro do projeto extraído. Ele tem
+# prioridade sobre versões globais, sem modificar permanentemente o PATH do usuário.
+if [[ -x "$RUNTIME_NODE_LOCAL/node" ]]; then
+  export PATH="$RUNTIME_NODE_LOCAL:$PATH"
+fi
 
 exigir_comando() {
   command -v "$1" >/dev/null 2>&1 || falhar "O comando '$1' não está disponível."
