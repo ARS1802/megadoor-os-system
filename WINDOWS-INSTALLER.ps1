@@ -11,10 +11,14 @@ $RaizProjeto = $PSScriptRoot
 $RaizRuntime = Join-Path $RaizProjeto ".runtime"
 $NodeLocal = Join-Path $RaizRuntime "node"
 $LogInstalacao = Join-Path $RaizRuntime "instalacao-windows.log"
+$LogInstalacaoAnterior = Join-Path $RaizRuntime "instalacao-windows.anterior.log"
 $Temporario = Join-Path $env:TEMP ("megadoor-installer-" + [Guid]::NewGuid().ToString("N"))
 $Icone = Join-Path $RaizProjeto "assets\icons\megadoor-icon.ico"
 $script:ProcessoAnimado = $null
 $script:TrabalhoAnimado = $null
+$script:EtapaAtual = "Inicialização"
+$script:InicioEtapa = $null
+$script:LogInicializado = $false
 
 function Informar([string]$Mensagem) {
     Write-Host "[Megadoor] $Mensagem" -ForegroundColor Cyan
@@ -22,6 +26,74 @@ function Informar([string]$Mensagem) {
 
 function Falhar([string]$Mensagem) {
     throw "[Megadoor] $Mensagem"
+}
+
+function Proteger-Segredos([string]$Texto) {
+    if ([string]::IsNullOrEmpty($Texto)) { return $Texto }
+    $Seguro = $Texto -replace '(?i)([?&]key=)[^&\s"''<>]+', '$1[oculto]'
+    foreach ($Chave in @("VITE_FIREBASE_API_KEY", "VITE_FIREBASE_APP_ID")) {
+        try {
+            $Valor = Get-ValorEnv $Chave
+            if (-not [string]::IsNullOrWhiteSpace($Valor)) {
+                $Seguro = $Seguro.Replace($Valor, "[oculto:$Chave]")
+            }
+        }
+        catch { }
+    }
+    return $Seguro
+}
+
+function Escrever-Log([string]$Nivel, [string]$Mensagem) {
+    if (-not $script:LogInicializado) { return }
+    try {
+        $Horario = Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff zzz"
+        $MensagemSegura = Proteger-Segredos $Mensagem
+        Add-Content -LiteralPath $LogInstalacao -Encoding UTF8 `
+            -Value ("[{0}] [{1}] {2}" -f $Horario, $Nivel, $MensagemSegura)
+    }
+    catch { }
+}
+
+function Inicializar-Log {
+    if ($script:LogInicializado) { return }
+    New-Item -ItemType Directory -Path $RaizRuntime -Force | Out-Null
+    if (Test-Path -LiteralPath $LogInstalacaoAnterior -PathType Leaf) {
+        Remove-Item -LiteralPath $LogInstalacaoAnterior -Force
+    }
+    if (Test-Path -LiteralPath $LogInstalacao -PathType Leaf) {
+        Move-Item -LiteralPath $LogInstalacao -Destination $LogInstalacaoAnterior -Force
+    }
+    [System.IO.File]::WriteAllText(
+        $LogInstalacao,
+        "",
+        (New-Object System.Text.UTF8Encoding($false))
+    )
+    $script:LogInicializado = $true
+    Escrever-Log "INFO" "Instalação iniciada. Projeto: $RaizProjeto"
+    Escrever-Log "INFO" "PowerShell $($PSVersionTable.PSVersion); Windows 64 bits: $([Environment]::Is64BitOperatingSystem)"
+}
+
+function Iniciar-Etapa([string]$Rotulo) {
+    $script:EtapaAtual = $Rotulo
+    $script:InicioEtapa = Get-Date
+    Escrever-Log "ETAPA" "INÍCIO: $Rotulo"
+}
+
+function Registrar-SaidaProcesso([string]$Rotulo, [string]$Canal, [string]$Arquivo) {
+    Escrever-Log "PROCESSO" "$Rotulo - $Canal - INÍCIO"
+    if (Test-Path -LiteralPath $Arquivo -PathType Leaf) {
+        $Linhas = @(Get-Content -LiteralPath $Arquivo -ErrorAction SilentlyContinue)
+        if ($Linhas.Count -eq 0) {
+            Escrever-Log $Canal "(sem saída)"
+        }
+        else {
+            foreach ($Linha in $Linhas) { Escrever-Log $Canal ([string]$Linha) }
+        }
+    }
+    else {
+        Escrever-Log $Canal "(arquivo de saída não criado)"
+    }
+    Escrever-Log "PROCESSO" "$Rotulo - $Canal - FIM"
 }
 
 function Mostrar-Barra([string]$Rotulo, [int]$Percentual) {
@@ -35,6 +107,12 @@ function Mostrar-Barra([string]$Rotulo, [int]$Percentual) {
 function Concluir-Etapa([string]$Rotulo) {
     Mostrar-Barra $Rotulo 100
     Write-Host "  OK" -ForegroundColor Green
+    $Duracao = ""
+    if ($script:InicioEtapa) {
+        $Segundos = [Math]::Round(((Get-Date) - $script:InicioEtapa).TotalSeconds, 2)
+        $Duracao = " em $Segundos s"
+    }
+    Escrever-Log "ETAPA" "SUCESSO: $Rotulo$Duracao"
 }
 
 function Invoke-ProcessoAnimado {
@@ -44,11 +122,15 @@ function Invoke-ProcessoAnimado {
         [Parameter(Mandatory = $true)][string[]]$Argumentos
     )
 
+    Iniciar-Etapa $Rotulo
     $Saida = Join-Path $Temporario ("saida-" + [Guid]::NewGuid().ToString("N") + ".log")
     $Erro = Join-Path $Temporario ("erro-" + [Guid]::NewGuid().ToString("N") + ".log")
     $Processo = Start-Process -FilePath $Executavel -ArgumentList $Argumentos `
         -WorkingDirectory $RaizProjeto -RedirectStandardOutput $Saida `
         -RedirectStandardError $Erro -PassThru
+    # No Windows PowerShell 5.1, reter o handle evita que ExitCode fique nulo
+    # quando o processo termina antes da leitura final.
+    $HandleProcesso = $Processo.Handle
     $script:ProcessoAnimado = $Processo
     $Percentual = 7
     $Quadro = 0
@@ -64,13 +146,18 @@ function Invoke-ProcessoAnimado {
     $Processo.WaitForExit()
     $script:ProcessoAnimado = $null
 
-    if (Test-Path -LiteralPath $Saida) { Get-Content -LiteralPath $Saida | Add-Content -LiteralPath $LogInstalacao }
-    if (Test-Path -LiteralPath $Erro) { Get-Content -LiteralPath $Erro | Add-Content -LiteralPath $LogInstalacao }
-    if ($Processo.ExitCode -ne 0) {
+    Registrar-SaidaProcesso $Rotulo "STDOUT" $Saida
+    Registrar-SaidaProcesso $Rotulo "STDERR" $Erro
+    $CodigoSaida = $Processo.ExitCode
+    Escrever-Log "PROCESSO" "$Rotulo terminou com código $CodigoSaida."
+    if ($null -eq $CodigoSaida) {
+        Falhar "$Rotulo terminou, mas o Windows não informou o código de saída. Consulte $LogInstalacao."
+    }
+    if ($CodigoSaida -ne 0) {
         Write-Host ""
         if (Test-Path -LiteralPath $Erro) { Get-Content -LiteralPath $Erro -Tail 25 | Write-Host }
         if (Test-Path -LiteralPath $Saida) { Get-Content -LiteralPath $Saida -Tail 25 | Write-Host }
-        Falhar "$Rotulo falhou (código $($Processo.ExitCode)). Consulte $LogInstalacao."
+        Falhar "$Rotulo falhou (código $CodigoSaida). Consulte $LogInstalacao."
     }
     Concluir-Etapa $Rotulo
 }
@@ -81,6 +168,7 @@ function Invoke-TrabalhoAnimado {
         [Parameter(Mandatory = $true)][scriptblock]$Trabalho,
         [object[]]$Argumentos = @()
     )
+    Iniciar-Etapa $Rotulo
     $Job = Start-Job -ScriptBlock $Trabalho -ArgumentList $Argumentos
     $script:TrabalhoAnimado = $Job
     $Percentual = 9
@@ -107,6 +195,7 @@ function Invoke-TrabalhoAnimado {
 }
 
 function Baixar-ComProgresso([string]$Url, [string]$Destino, [string]$Rotulo) {
+    Iniciar-Etapa $Rotulo
     $Requisicao = [System.Net.HttpWebRequest]::Create($Url)
     $Requisicao.UserAgent = "Megadoor-Installer/1.0"
     $Resposta = $Requisicao.GetResponse()
@@ -152,6 +241,7 @@ function Get-ValorEnv([string]$Chave) {
 }
 
 function Verificar-Firebase {
+    Iniciar-Etapa "Verificando conexão com o Firebase"
     foreach ($Chave in @(
         "VITE_FIREBASE_API_KEY",
         "VITE_FIREBASE_AUTH_DOMAIN",
@@ -191,10 +281,12 @@ function Test-Java21 {
 }
 
 function Preparar-JavaSeNecessario {
+    Iniciar-Etapa "Verificando dependências do modo configurado"
     if ((Get-ValorEnv "VITE_MODO_APLICACAO").ToUpperInvariant() -ne "EMULADORES") {
         Concluir-Etapa "Verificando dependências do modo configurado"
         return
     }
+    Iniciar-Etapa "Verificando Java 21"
     if (Test-Java21) {
         Concluir-Etapa "Verificando Java 21"
         return
@@ -210,6 +302,7 @@ function Preparar-JavaSeNecessario {
 }
 
 function Preparar-Node {
+    Iniciar-Etapa "Verificando Node.js privado $VersaoNode"
     $Anterior = Join-Path $RaizRuntime "node.anterior"
     if (Test-Path -LiteralPath $Anterior -PathType Container) {
         if (Test-Path -LiteralPath $NodeLocal) {
@@ -230,6 +323,7 @@ function Preparar-Node {
 
     $PacoteNode = Join-Path $Temporario $ArquivoNode
     Baixar-ComProgresso $UrlNode $PacoteNode "Baixando Node.js privado $VersaoNode"
+    Iniciar-Etapa "Validando integridade do Node.js"
     $Hash = (Get-FileHash -LiteralPath $PacoteNode -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($Hash -ne $Sha256Node) { Falhar "O Node.js baixado não passou na verificação SHA-256." }
     Concluir-Etapa "Validando integridade do Node.js"
@@ -244,6 +338,7 @@ function Preparar-Node {
     if (-not (Test-Path -LiteralPath (Join-Path $Origem "node.exe") -PathType Leaf)) {
         Falhar "O pacote Node.js extraído está incompleto."
     }
+    Iniciar-Etapa "Instalando Node.js privado"
     $Novo = Join-Path $RaizRuntime "node.novo"
     if (Test-Path -LiteralPath $Novo) { Remove-Item -LiteralPath $Novo -Recurse -Force }
     if (Test-Path -LiteralPath $Anterior) { Remove-Item -LiteralPath $Anterior -Recurse -Force }
@@ -259,6 +354,7 @@ function Preparar-Node {
 }
 
 function Criar-Atalho {
+    Iniciar-Etapa "Criando atalho na Área de Trabalho"
     $Shell = New-Object -ComObject WScript.Shell
     $Desktop = [Environment]::GetFolderPath([Environment+SpecialFolder]::DesktopDirectory)
     if ([string]::IsNullOrWhiteSpace($Desktop) -or -not [System.IO.Path]::IsPathRooted($Desktop)) {
@@ -283,6 +379,8 @@ function Criar-Atalho {
 }
 
 try {
+    Inicializar-Log
+    Iniciar-Etapa "Validando ambiente do instalador"
     if ($PSVersionTable.PSVersion.Major -lt 5) {
         Falhar "Este instalador requer Windows PowerShell 5.1 ou superior."
     }
@@ -294,7 +392,9 @@ try {
         Falhar "Mova a pasta extraída para um caminho sem o caractere % e execute o instalador novamente."
     }
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    Concluir-Etapa "Validando ambiente do instalador"
 
+    Iniciar-Etapa "Validando arquivos do instalador"
     foreach ($Arquivo in @(
         "package.json", "package-lock.json", "START.ps1", ".env.production", "assets\icons\megadoor-icon.ico"
     )) {
@@ -302,15 +402,15 @@ try {
             Falhar "Arquivo ausente: $Arquivo. Extraia integralmente o ZIP baixado do GitHub."
         }
     }
+    Concluir-Etapa "Validando arquivos do instalador"
 
-    New-Item -ItemType Directory -Path $RaizRuntime -Force | Out-Null
     New-Item -ItemType Directory -Path $Temporario -Force | Out-Null
-    [System.IO.File]::WriteAllText($LogInstalacao, "", (New-Object System.Text.UTF8Encoding($false)))
 
     Write-Host "`nInstalador do Megadoor para Windows" -ForegroundColor Cyan
     Write-Host "Projeto: $RaizProjeto`n"
 
     Preparar-Node
+    Iniciar-Etapa "Preparando configuração local"
     if (-not (Test-Path -LiteralPath (Join-Path $RaizProjeto ".env.local") -PathType Leaf)) {
         Copy-Item -LiteralPath (Join-Path $RaizProjeto ".env.production") `
             -Destination (Join-Path $RaizProjeto ".env.local")
@@ -320,20 +420,45 @@ try {
     $Node = Join-Path $NodeLocal "node.exe"
     $NpmCli = Join-Path $NodeLocal "node_modules\npm\bin\npm-cli.js"
     Invoke-ProcessoAnimado "Instalando dependências npm" $Node @(
-        '"' + $NpmCli + '"', "ci", "--prefix", '"' + $RaizProjeto + '"', "--no-audit", "--no-fund"
+        '"' + $NpmCli + '"', "ci", "--prefix", '"' + $RaizProjeto + '"',
+        "--strict-allow-scripts", "--no-audit", "--no-fund"
     )
 
     Verificar-Firebase
     Preparar-JavaSeNecessario
     Criar-Atalho
 
+    $script:EtapaAtual = "Instalação concluída"
+    Escrever-Log "INFO" "Instalação concluída com sucesso."
     Write-Host "`nInstalação concluída." -ForegroundColor Green
     Write-Host "Use o atalho Megadoor na Área de Trabalho. Ele executará START.ps1 e abrirá o navegador."
     Write-Host "Não mova nem exclua esta pasta; o atalho aponta para: $RaizProjeto"
     Write-Host "A FastAPI não foi testada; ela pode ser configurada e conectada posteriormente."
 }
 catch {
-    Write-Host "`nA instalação falhou: $($_.Exception.Message)" -ForegroundColor Red
+    $RegistroErro = $_
+    try {
+        if (-not $script:LogInicializado) { Inicializar-Log }
+        $MensagemErro = Proteger-Segredos $RegistroErro.Exception.Message
+        $TipoErro = $RegistroErro.Exception.GetType().FullName
+        $IdErro = [string]$RegistroErro.FullyQualifiedErrorId
+        $LocalErro = ""
+        if ($RegistroErro.InvocationInfo) {
+            $LocalErro = "{0}:{1}" -f $RegistroErro.InvocationInfo.ScriptName,
+                $RegistroErro.InvocationInfo.ScriptLineNumber
+        }
+        Escrever-Log "ETAPA" "FALHA: $($script:EtapaAtual)"
+        Escrever-Log "ERRO" "Mensagem: $MensagemErro"
+        Escrever-Log "ERRO" "Tipo: $TipoErro; ID: $IdErro; Local: $LocalErro"
+        if ($RegistroErro.ScriptStackTrace) {
+            Escrever-Log "ERRO" "Pilha: $($RegistroErro.ScriptStackTrace)"
+        }
+    }
+    catch { }
+    $MensagemUsuario = Proteger-Segredos $RegistroErro.Exception.Message
+    Write-Host "`nA instalação falhou na etapa '$($script:EtapaAtual)'." -ForegroundColor Red
+    Write-Host "Detalhes: $MensagemUsuario" -ForegroundColor Red
+    Write-Host "Log: $LogInstalacao" -ForegroundColor Yellow
     exit 1
 }
 finally {

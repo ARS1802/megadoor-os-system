@@ -6,6 +6,11 @@
   "engines": {
     "node": ">=20.19.0"
   },
+  "allowScripts": {
+    "@firebase/util@1.15.2": true,
+    "fsevents": false,
+    "protobufjs@7.6.5": true
+  },
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vue-tsc --noEmit && vite build",
