@@ -17,11 +17,7 @@
     "test:e2e": "playwright test",
     "test:e2e:real": "bash scripts/testar-e2e-real.sh",
     "format": "prettier --write .",
-    "format:check": "prettier --check .",
-    "test:packaging": "node packaging/scripts/testar-manifesto.mjs && node packaging/scripts/testar-avisos-de-terceiros.mjs && node --test packaging/windows/runtime/static-server.test.mjs",
-    "test:packaging:linux": "bash packaging/linux/test-linux-packaging.sh",
-    "build:windows": "bash packaging/windows/build-release.sh",
-    "build:linux": "bash packaging/linux/build-release.sh"
+    "format:check": "prettier --check ."
   },
   "dependencies": {
     "firebase": "^12.17.1",

@@ -17,7 +17,6 @@ export default defineConfig({
       "testes/e2e/**",
       "testes/e2e-real/**",
       "testes/firestore/**",
-      "packaging/**",
       "node_modules/**",
       "dist/**",
     ],

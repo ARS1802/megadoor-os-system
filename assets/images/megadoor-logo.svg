@@ -2,7 +2,7 @@
   <title id="title">Megadoor</title>
   <desc id="description">Comunicação visual e locação de outdoor</desc>
   <rect width="520" height="118" rx="6" fill="#202124"/>
-  <path d="M28 24h51l-8 13H45l-3 10h24L58 60H38l-10 34H9z" fill="#e6c13c"/>
-  <text x="78" y="67" fill="#e6c13c" font-family="Arial, sans-serif" font-size="50" font-weight="700" font-style="italic">MEGADOOR</text>
-  <text x="80" y="91" fill="#ffffff" font-family="Arial, sans-serif" font-size="14">Comunicação visual e locação de outdoor</text>
+  <path d="M10 94V24h16l21 31 21-31h16v70H66V55L47 83 28 55v39z" fill="#e6c13c"/>
+  <text x="92" y="67" fill="#e6c13c" font-family="Arial, sans-serif" font-size="50" font-weight="700" font-style="italic">MEGADOOR</text>
+  <text x="94" y="91" fill="#ffffff" font-family="Arial, sans-serif" font-size="14">Comunicação visual e locação de outdoor</text>
 </svg>

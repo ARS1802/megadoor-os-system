@@ -1,10 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title description">
   <title id="title">Megadoor</title>
-  <desc id="description">Símbolo angular dourado da Megadoor sobre fundo grafite</desc>
+  <desc id="description">Monograma M dourado da Megadoor sobre fundo grafite</desc>
   <rect width="512" height="512" rx="88" fill="#202124"/>
-  <path
-    fill="#E6C13C"
-    d="M173 92h265l-42 68H261l-16 52h125l-42 68H224l-52 177H73z"
-  />
+  <path fill="#E6C13C" d="M80 408V104h82l94 137 94-137h82v304h-78V235l-98 143-98-143v173z"/>
 </svg>

@@ -8,7 +8,10 @@ export default defineConfig({
   },
   webServer: {
     command: "npm run build && npm run preview -- --port 4173",
-    env: { VITE_MODO_APLICACAO: "DEMO" },
+    env: {
+      VITE_MODO_APLICACAO: "DEMO",
+      VITE_USAR_CONFIGURACAO_RUNTIME: "false",
+    },
     port: 4173,
     // Nunca reutilize um preview possivelmente iniciado em modo REAL.
     reuseExistingServer: false,
