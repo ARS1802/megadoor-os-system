@@ -36,7 +36,14 @@ export interface RepositorioDeMateriais {
     aoFalhar?: (erro: Error) => void,
   ): Unsubscribe;
   obterPorReferencia(referencia: DocumentReference): Promise<Material | null>;
+  recalcularRolosUtilizados(idDoMaterial: string): Promise<ResultadoRecalculoDeRolos>;
   gerarReferencia(): DocumentReference;
+}
+
+export interface ResultadoRecalculoDeRolos {
+  alterado: boolean;
+  rolosUtilizados: number;
+  avisos: string[];
 }
 
 export interface EntradaAjusteProducao {
@@ -115,6 +122,7 @@ export interface RepositorioDeOrdensDeServico {
     aoFalhar?: (erro: Error) => void,
   ): Unsubscribe;
   ajustarProducao(entrada: EntradaAjusteProducao): Promise<ResultadoAjusteProducao>;
+  atualizarRegistroMaisRecente(idDaOrdem: string, linha: string): Promise<void>;
   confirmarSincronizacaoDoRegistro(idDaOperacao: string): Promise<void>;
   substituirArquivoDoProcesso(
     entrada: EntradaSubstituicaoArquivoDoProcesso,

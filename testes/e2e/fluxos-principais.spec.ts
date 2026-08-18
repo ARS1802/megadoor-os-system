@@ -8,6 +8,13 @@ async function entrarComoAdministrador(page: Page): Promise<void> {
   await expect(page).toHaveURL(/#\/administracao\/resumo$/);
 }
 
+function valorPrincipalDaProducao(page: Page) {
+  return page
+    .getByRole("heading", { name: /Produção de /i })
+    .locator("..")
+    .locator(".meter-value span");
+}
+
 test("navega por linha, processo e mantém o layout desktop", async ({ page }) => {
   const erros: string[] = [];
   page.on("console", (mensagem) => {
@@ -106,9 +113,15 @@ test("mantém o Designer no fluxo da OS ao abrir uma etapa", async ({ page }) =>
   await expect(page).toHaveURL(/#\/ordens\/[^/]+\/processos\/impressao\?retorno=\/designer$/);
   await expect(page.getByRole("heading", { name: /Produção de impressão/i })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Ajustar produção" })).toBeVisible();
-  await expect(page.locator(".meter-value span")).toHaveText("52");
+  await expect(valorPrincipalDaProducao(page)).toHaveText("52");
   await page.getByRole("button", { name: "+1 grade" }).click();
-  await expect(page.locator(".meter-value span")).toHaveText("104");
+  await expect(valorPrincipalDaProducao(page)).toHaveText("104");
+  await expect(
+    page
+      .locator("section.card")
+      .filter({ has: page.getByRole("heading", { name: "Atividade recente" }) })
+      .getByText("USUARIO=designer", { exact: false }),
+  ).toBeVisible();
 
   await page.getByRole("link", { name: /Detalhes/ }).click();
   await page.getByRole("link", { name: /Ordens/ }).click();
@@ -160,9 +173,9 @@ test("permite ajustar várias unidades de uma vez no processo atual", async ({ p
   await page.goto("/#/ordens/OS-2026-001/processos/corte");
   await page.getByLabel("Quantidade de unidades").fill("173");
   await page.getByRole("button", { name: "Remover unidades" }).click();
-  await expect(page.locator(".meter-value span")).toHaveText("35");
+  await expect(valorPrincipalDaProducao(page)).toHaveText("35");
   await page.getByRole("button", { name: "Adicionar unidades" }).click();
-  await expect(page.locator(".meter-value span")).toHaveText("208");
+  await expect(valorPrincipalDaProducao(page)).toHaveText("208");
 });
 
 test("bloqueia novas adições quando um processo atinge 100%", async ({ page }) => {
@@ -172,7 +185,7 @@ test("bloqueia novas adições quando um processo atinge 100%", async ({ page })
   await page.getByLabel("Quantidade de unidades").fill("19948");
   await page.getByRole("button", { name: "Adicionar unidades" }).click();
 
-  await expect(page.locator(".meter-value span")).toHaveText("20.000");
+  await expect(valorPrincipalDaProducao(page)).toHaveText("20.000");
   await expect(page.getByText(/Meta atingida\. Adições estão bloqueadas/)).toBeVisible();
   await expect(page.getByRole("button", { name: "+1 grade" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Adicionar unidades" })).toBeDisabled();
@@ -181,7 +194,7 @@ test("bloqueia novas adições quando um processo atinge 100%", async ({ page })
 
   await page.getByLabel("Quantidade de unidades").fill("1");
   await page.getByRole("button", { name: "Remover unidades" }).click();
-  await expect(page.locator(".meter-value span")).toHaveText("19.999");
+  await expect(valorPrincipalDaProducao(page)).toHaveText("19.999");
   await expect(page.getByRole("button", { name: "Adicionar unidades" })).toBeEnabled();
 });
 
@@ -238,6 +251,7 @@ test("mantém download e metadados do arquivo em uma OS concluída", async ({ pa
   await expect(previaDoProcesso.getByRole("heading", { name: "Arquivo designado" })).toBeVisible();
   await expect(previaDoProcesso.getByText("106 × 200 cm")).toBeVisible();
   await expect(previaDoProcesso.getByText("1,74 MB")).toBeVisible();
+  await expect(previaDoProcesso.getByRole("button", { name: "Baixar arquivo" })).toBeEnabled();
 });
 
 test("mostra os três cargos como opções explicativas", async ({ page }) => {

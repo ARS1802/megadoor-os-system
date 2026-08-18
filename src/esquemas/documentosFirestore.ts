@@ -96,6 +96,8 @@ export const esquemaDocumentoOrdemDeServico = z.strictObject({
   status: z.enum(StatusOrdemDeServico),
   ultimaAtividadeEm: esquemaTimestamp.nullable(),
   caminhoRegistro: z.string().regex(/^ordens-de-servico\/[A-Za-z0-9_-]+\/registro\.txt$/),
+  // Documentos anteriores à introdução do resumo de atividade continuam legíveis.
+  registroMaisRecente: z.string().default(""),
   caminhoObservacao: z.string().regex(/^ordens-de-servico\/[A-Za-z0-9_-]+\/observacao\.txt$/),
   dadosDeConclusao: z
     .strictObject({
@@ -105,8 +107,6 @@ export const esquemaDocumentoOrdemDeServico = z.strictObject({
       justificativa: z.string().optional(),
     })
     .optional(),
-  metragemQuadradaCalculada: z.number().nonnegative().nullable(),
-  quantidadeRolosCalculada: z.number().int().nonnegative().nullable(),
   criadaEm: esquemaTimestamp,
   atualizadaEm: esquemaTimestamp,
 });

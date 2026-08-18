@@ -79,6 +79,8 @@ function ordemCarregadaDepoisDoMount(): Record<string, unknown> {
     nomeDoCandidato: "Candidato",
     nomeDoMaterial: "Material",
     dimensoesDaUnidade: "10 × 20 cm",
+    larguraDaUnidadeEmCentimetros: 10,
+    alturaDaUnidadeEmCentimetros: 20,
     larguraGrade: 100,
     alturaGrade: 200,
     unidadesPorGrade: 2,
@@ -88,7 +90,6 @@ function ordemCarregadaDepoisDoMount(): Record<string, unknown> {
     processos: [],
     caminhoRegistro: "ordens-de-servico/OS-TARDIA/registro.txt",
     caminhoObservacao: "ordens-de-servico/OS-TARDIA/observacao.txt",
-    quantidadeRolosCalculada: 1,
     criadaEm: new Date("2026-08-12T12:00:00-03:00"),
   };
 }

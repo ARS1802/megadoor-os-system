@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  resumirProducaoPorCandidato,
+  resumirProducaoPorCandidatoEMaterial,
   type OrdemParaResumoDaProducao,
 } from "@/aplicacao/servicos/resumirProducaoPorCandidato";
 
@@ -12,45 +12,47 @@ function ordem(
   return {
     candidatoId,
     nomeDoCandidato: candidato,
-    larguraGrade: 100,
-    alturaGrade: 200,
-    unidadesPorGrade: 10,
-    quantidadeTotal: 25,
-    quantidadeRolosCalculada: 2,
+    materialId: "material-a",
+    nomeDoMaterial: "Material A",
+    larguraDaUnidadeEmCentimetros: 10,
+    alturaDaUnidadeEmCentimetros: 20,
+    unidadesImpressas: 25,
     ...propriedades,
   };
 }
 
-describe("resumo da produção por candidato", () => {
-  it("agrupa várias OS do mesmo candidato e soma a metragem e os rolos", () => {
-    const resumo = resumirProducaoPorCandidato([
+describe("resumo da produção por candidato e material", () => {
+  it("agrupa várias OS da mesma combinação e soma somente unidades impressas", () => {
+    const resumo = resumirProducaoPorCandidatoEMaterial([
       ordem("candidato-a", "Candidato A"),
       ordem("candidato-a", "Candidato A", {
-        larguraGrade: 50,
-        alturaGrade: 100,
-        unidadesPorGrade: 5,
-        quantidadeTotal: 10,
-        quantidadeRolosCalculada: 1,
+        unidadesImpressas: 5,
       }),
-      ordem("candidato-b", "Candidato B", { quantidadeRolosCalculada: 4 }),
+      ordem("candidato-b", "Candidato B"),
     ]);
 
     expect(resumo).toHaveLength(2);
     expect(resumo[0]).toMatchObject({
-      id: "candidato-a",
       candidato: "Candidato A",
-      rolos: 3,
+      material: "Material A",
     });
-    expect(resumo[0].metragem).toBeCloseTo(7);
-    expect(resumo[1]).toMatchObject({ candidato: "Candidato B", rolos: 4 });
+    expect(resumo[0].metragem).toBeCloseTo(0.6);
+    expect(resumo[1]).toMatchObject({ candidato: "Candidato B", material: "Material A" });
   });
 
-  it("não atribui ao candidato rolos ainda não calculados na OS", () => {
-    const [resumo] = resumirProducaoPorCandidato([
-      ordem("candidato-a", "Candidato A", { quantidadeRolosCalculada: null }),
+  it("separa materiais diferentes do mesmo candidato e mantém grupos sem impressão", () => {
+    const resumo = resumirProducaoPorCandidatoEMaterial([
+      ordem("candidato-a", "Candidato A", { unidadesImpressas: 0 }),
+      ordem("candidato-a", "Candidato A", {
+        materialId: "material-b",
+        nomeDoMaterial: "Material B",
+        unidadesImpressas: 10,
+      }),
     ]);
 
-    expect(resumo.rolos).toBe(0);
-    expect(resumo.metragem).toBeCloseTo(6);
+    expect(resumo).toHaveLength(2);
+    expect(resumo[0]).toMatchObject({ material: "Material A", metragem: 0 });
+    expect(resumo[1]).toMatchObject({ material: "Material B" });
+    expect(resumo[1].metragem).toBeCloseTo(0.2);
   });
 });

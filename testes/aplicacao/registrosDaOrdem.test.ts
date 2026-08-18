@@ -6,6 +6,7 @@ import type { ServidorDeArquivosDaOrdem } from "@/aplicacao/contratos/ServidorDe
 import {
   COLUNAS_CSV_DOS_REGISTROS,
   criarLinhaDeConclusaoForcada,
+  escolherRegistroMaisRecente,
   gerarCsvDosRegistros,
   interpretarLinhaDeRegistro,
   criarLinhaDeSubstituicaoDeArquivo,
@@ -30,6 +31,16 @@ function registrosDoCsv(csv: string): Record<string, string>[] {
 }
 
 describe("registros da Ordem de Serviço", () => {
+  it("preserva o registro mais novo quando respostas concorrentes chegam fora de ordem", () => {
+    const antigo = "[2026-08-12T14:30:00.000Z] | USUARIO=Ana | UNIDADES=+1";
+    const novo = "[2026-08-12T14:31:00.000Z] | USUARIO=Bia | UNIDADES=+1";
+
+    expect(escolherRegistroMaisRecente("", antigo)).toBe(antigo);
+    expect(escolherRegistroMaisRecente(antigo, novo)).toBe(novo);
+    expect(escolherRegistroMaisRecente(novo, antigo)).toBe(novo);
+    expect(() => escolherRegistroMaisRecente(novo, "sem data")).toThrow("data válida");
+  });
+
   it("interpreta tanto o formato estruturado atual quanto o formato legado", () => {
     const atual = interpretarLinhaDeRegistro(
       "[2026-08-12T14:30:00.000Z] | USUARIO=Ana Lima | PROCESSO=CORTE | UNIDADES=-173",
@@ -158,9 +169,13 @@ describe("registros da Ordem de Serviço", () => {
     };
     const forcarConclusao = vi.fn().mockResolvedValue(resultado);
     const acrescentarRegistro = vi.fn().mockResolvedValue(undefined);
+    const atualizarRegistroMaisRecente = vi.fn().mockResolvedValue(undefined);
     const casoDeUso = new ForcarConclusaoDaOrdem(
-      { forcarConclusao } as unknown as RepositorioDeOrdensDeServico,
-      { acrescentarRegistro } as unknown as ServidorDeArquivosDaOrdem,
+      { forcarConclusao, atualizarRegistroMaisRecente } as unknown as RepositorioDeOrdensDeServico,
+      {
+        verificarConexao: vi.fn().mockResolvedValue(true),
+        acrescentarRegistro,
+      } as unknown as ServidorDeArquivosDaOrdem,
     );
     const referenciaAdministrador = { id: "admin-1" } as DocumentReference;
 
@@ -187,6 +202,7 @@ describe("registros da Ordem de Serviço", () => {
     expect(linha).toContain("IMPRESSAO_FALTANTES=480");
     expect(linha).toContain("CORTE_PRODUZIDAS=800");
     expect(linha).toContain("CORTE_FALTANTES=200");
+    expect(atualizarRegistroMaisRecente).toHaveBeenCalledWith("OS-1", linha);
   });
 
   it("estrutura o registro de substituição com operação, usuário e arquivos anterior e novo", () => {

@@ -4,9 +4,11 @@ import { useRoute } from "vue-router";
 import AppHeader from "@/componentes/AppHeader.vue";
 import BarraDeProgresso from "@/componentes/BarraDeProgresso.vue";
 import IdentificadorDaPagina from "@/componentes/IdentificadorDaPagina.vue";
+import MedidorCircular from "@/componentes/MedidorCircular.vue";
 import PreviewDeArquivo from "@/componentes/PreviewDeArquivo.vue";
 import {
   CargoUsuario,
+  ROTULOS_CARGOS,
   SentidoDoAjuste,
   StatusOrdemDeServico,
   TipoContadorProducao,
@@ -18,7 +20,11 @@ import { usarSessao } from "@/composables/usarSessao";
 import { usarNotificacoes } from "@/composables/usarNotificacoes";
 import { usarNavegacaoContextual } from "@/composables/usarNavegacaoContextual";
 import { firebaseEstaConfigurado } from "@/infraestrutura/firebase/configuracaoFirebase";
-import { calcularVariacaoEmUnidades } from "@/dominio/servicos/producao";
+import { ErroServidorNaoConfigurado } from "@/infraestrutura/servidor/ServidorDeArquivosFastApi";
+import {
+  calcularMedidoresDaProducao,
+  calcularVariacaoEmUnidades,
+} from "@/dominio/servicos/producao";
 import { criarLinhaDeAjuste } from "@/aplicacao/servicos/registrosDaOrdem";
 import { acrescentarRegistroDemonstrativo } from "@/infraestrutura/demonstracao/registrosDemonstrativos";
 import {
@@ -35,6 +41,10 @@ const { notificar } = usarNotificacoes();
 const { preservandoRetorno } = usarNavegacaoContextual();
 const quantidadeDeUnidades = ref<number | null>(1);
 const ajustando = ref(false);
+const porcentagemDownload = ref<number | null>(null);
+const urlDaPrevia = ref("");
+const carregandoPrevia = ref(false);
+const erroDaPrevia = ref("");
 const id = computed(() => String(rota.params.id));
 const tipo = computed(() => String(rota.params.processo).toUpperCase() as TipoProcessoProducao);
 const ordem = computed(() => dados.ordens.value.find((item) => item.id === id.value));
@@ -52,6 +62,15 @@ const unidadesRestantes = computed(() =>
     ? processo.value.unidadesProduzidas % ordem.value.unidadesPorGrade
     : 0,
 );
+const medidores = computed(() =>
+  ordem.value && processo.value
+    ? calcularMedidoresDaProducao(
+        processo.value.unidadesProduzidas,
+        ordem.value.quantidadeTotal,
+        ordem.value.unidadesPorGrade,
+      )
+    : null,
+);
 const quantidadeDeUnidadesValida = computed(() => {
   const quantidade = Number(quantidadeDeUnidades.value);
   return Number.isSafeInteger(quantidade) && quantidade > 0;
@@ -68,6 +87,8 @@ const podeAjustarProducao = computed(() =>
 );
 let cancelarObservacao: (() => void) | undefined;
 let cancelarObservacaoDaOrdem: (() => void) | undefined;
+let urlTemporariaDaPrevia = "";
+let versaoDoCarregamentoDaPrevia = 0;
 const consultasDeMetadados = new Map<
   string,
   ReturnType<typeof servidorDeArquivos.obterMetadadosDoArquivo>
@@ -94,9 +115,63 @@ async function hidratarMetadadosDoArquivo(): Promise<void> {
     if (alvo.caminhoNoServidor !== caminho) return;
     alvo.tamanhoEmBytes = metadados.tamanhoEmBytes;
     alvo.modificadoEm = metadados.modificadoEm;
-  } catch {
+  } catch (falha) {
     // Ausência de mtime continua visível como “Não informado pelo servidor”.
+    if (falha instanceof ErroServidorNaoConfigurado) notificar(falha.message, "error");
   }
+}
+
+function extensaoPermitePreviaDeImagem(extensao: string): boolean {
+  return [".jpg", ".jpeg", ".png"].includes(extensao.toLocaleLowerCase("pt-BR"));
+}
+
+function limparPrevia(): void {
+  if (urlTemporariaDaPrevia) URL.revokeObjectURL(urlTemporariaDaPrevia);
+  urlTemporariaDaPrevia = "";
+  urlDaPrevia.value = "";
+}
+
+async function carregarPreviaDoArquivo(): Promise<void> {
+  const alvo = processo.value;
+  const versaoAtual = ++versaoDoCarregamentoDaPrevia;
+  limparPrevia();
+  erroDaPrevia.value = "";
+
+  if (!alvo || !extensaoPermitePreviaDeImagem(alvo.extensao)) {
+    carregandoPrevia.value = false;
+    return;
+  }
+  if (!firebaseEstaConfigurado) {
+    carregandoPrevia.value = false;
+    return;
+  }
+
+  carregandoPrevia.value = true;
+  try {
+    const imagem = await servidorDeArquivos.baixarArquivo(alvo.caminhoNoServidor);
+    if (imagem.type && !imagem.type.startsWith("image/")) {
+      throw new Error("O servidor não retornou um arquivo de imagem válido.");
+    }
+    const url = URL.createObjectURL(imagem);
+    if (versaoAtual !== versaoDoCarregamentoDaPrevia) {
+      URL.revokeObjectURL(url);
+      return;
+    }
+    urlTemporariaDaPrevia = url;
+    urlDaPrevia.value = url;
+  } catch (falha) {
+    if (versaoAtual !== versaoDoCarregamentoDaPrevia) return;
+    erroDaPrevia.value =
+      falha instanceof Error ? falha.message : "Não foi possível carregar a prévia do arquivo.";
+    notificar(erroDaPrevia.value, "error");
+  } finally {
+    if (versaoAtual === versaoDoCarregamentoDaPrevia) carregandoPrevia.value = false;
+  }
+}
+
+function informarFalhaDaPrevia(): void {
+  limparPrevia();
+  erroDaPrevia.value = "A imagem baixada não pôde ser exibida.";
 }
 
 function iniciarObservacao(): void {
@@ -104,7 +179,10 @@ function iniciarObservacao(): void {
   if (!firebaseEstaConfigurado || !ordem.value) return;
   cancelarObservacaoDaOrdem?.();
   cancelarObservacaoDaOrdem = repositorioDeOrdens.observarOrdem(id.value, (novaOrdem) => {
-    if (novaOrdem && ordem.value) ordem.value.status = novaOrdem.status;
+    if (novaOrdem && ordem.value) {
+      ordem.value.status = novaOrdem.status;
+      ordem.value.registroMaisRecente = novaOrdem.registroMaisRecente;
+    }
   });
   cancelarObservacao = repositorioDeOrdens.observarProcesso(id.value, tipo.value, (novo) => {
     if (!novo || !processo.value) return;
@@ -137,10 +215,42 @@ watch(tipo, () => {
   iniciarObservacao();
   void hidratarMetadadosDoArquivo();
 });
+watch(
+  [() => processo.value?.caminhoNoServidor, () => processo.value?.extensao],
+  () => void carregarPreviaDoArquivo(),
+  { immediate: true },
+);
 onUnmounted(() => {
   cancelarObservacao?.();
   cancelarObservacaoDaOrdem?.();
+  versaoDoCarregamentoDaPrevia += 1;
+  limparPrevia();
 });
+
+async function baixarArquivo(): Promise<void> {
+  if (!processo.value || (porcentagemDownload.value !== null && porcentagemDownload.value < 100)) {
+    return;
+  }
+  porcentagemDownload.value = 0;
+  try {
+    const alvo = processo.value;
+    const blob = await servidorDeArquivos.baixarArquivo(alvo.caminhoNoServidor, (valor) => {
+      porcentagemDownload.value = valor;
+      notificar(`Download: ${valor}%`, valor === 100 ? "success" : "blue", 1_200);
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = alvo.nomeArquivo;
+    link.click();
+    URL.revokeObjectURL(url);
+    porcentagemDownload.value = 100;
+    notificar("Download: 100%", "success", 1_200);
+  } catch (falha) {
+    porcentagemDownload.value = null;
+    notificar(falha instanceof Error ? falha.message : "Falha no download.", "error");
+  }
+}
 
 async function ajustar(
   tipoContador: TipoContadorProducao,
@@ -176,17 +286,16 @@ async function ajustar(
       return;
     }
     processo.value.unidadesProduzidas += variacao;
-    acrescentarRegistroDemonstrativo(
-      ordem.value.id,
-      criarLinhaDeAjuste({
-        idDaOperacao: crypto.randomUUID(),
-        nomeDoUsuario: sessao.usuarioAtual.value.nome,
-        processo: processo.value.tipo,
-        tipoContador,
-        sentido,
-        variacaoEmUnidades: variacao,
-      }),
-    );
+    const linha = criarLinhaDeAjuste({
+      idDaOperacao: crypto.randomUUID(),
+      nomeDoUsuario: sessao.usuarioAtual.value.nome,
+      processo: processo.value.tipo,
+      tipoContador,
+      sentido,
+      variacaoEmUnidades: variacao,
+    });
+    acrescentarRegistroDemonstrativo(ordem.value.id, linha);
+    ordem.value.registroMaisRecente = linha;
     ordem.value.status =
       processo.value.unidadesProduzidas >= processo.value.metaDeUnidades &&
       ordem.value.processos.every(
@@ -219,9 +328,11 @@ async function ajustar(
     );
   } catch (erro) {
     const mensagem =
-      erro instanceof Error
-        ? `${erro.message} Aguarde a atualização em tempo real antes de tentar novamente.`
-        : "Não foi possível confirmar o ajuste. Aguarde a atualização em tempo real antes de tentar novamente.";
+      erro instanceof ErroServidorNaoConfigurado
+        ? erro.message
+        : erro instanceof Error
+          ? `${erro.message} Aguarde a atualização em tempo real antes de tentar novamente.`
+          : "Não foi possível confirmar o ajuste. Aguarde a atualização em tempo real antes de tentar novamente.";
     notificar(mensagem, "error");
   } finally {
     ajustando.value = false;
@@ -235,7 +346,14 @@ async function ajustar(
       :titulo="rotuloDoProcesso(processo.tipo)"
       :voltar-para="preservandoRetorno({ name: 'detalhesOrdem', params: { id } })"
       rotulo-voltar="Detalhes"
-    />
+    >
+      <template #acoes>
+        <p v-if="sessao.usuarioAtual.value" class="app-header__user muted">
+          {{ sessao.usuarioAtual.value.nome }} ·
+          {{ ROTULOS_CARGOS[sessao.usuarioAtual.value.cargo] }}
+        </p>
+      </template>
+    </AppHeader>
     <nav class="stage-tabs" aria-label="Processo atual">
       <RouterLink
         v-for="item in ordem.processos"
@@ -256,10 +374,11 @@ async function ajustar(
       <div>
         <section class="card">
           <h1>Produção de {{ rotuloDoProcesso(processo.tipo).toLocaleLowerCase("pt-BR") }}</h1>
-          <div class="meter-value">
-            <span>{{ processo.unidadesProduzidas.toLocaleString("pt-BR") }}</span
-            ><small>/ {{ processo.metaDeUnidades.toLocaleString("pt-BR") }} unidades</small>
-          </div>
+          <MedidorCircular
+            :valor="processo.unidadesProduzidas"
+            :maximo="processo.metaDeUnidades"
+            unidade="unidades"
+          />
           <BarraDeProgresso :valor="progresso" />
           <p class="muted">
             Equivalência: {{ gradesCompletas }}
@@ -282,6 +401,16 @@ async function ajustar(
           <div class="production-adjustment">
             <section class="adjustment-group" aria-labelledby="grade-adjustment-title">
               <h3 id="grade-adjustment-title">Grades</h3>
+              <MedidorCircular
+                v-if="medidores"
+                :valor="medidores.gradesProduzidas"
+                :maximo="medidores.gradesNecessarias"
+                unidade="grades"
+              />
+              <p v-if="medidores" class="muted">
+                Faltam {{ medidores.gradesFaltantes.toLocaleString("pt-BR") }}
+                {{ medidores.gradesFaltantes === 1 ? "grade" : "grades" }}.
+              </p>
               <p class="muted">Uma grade equivale a {{ ordem.unidadesPorGrade }} unidades.</p>
               <div class="button-row">
                 <button
@@ -301,6 +430,16 @@ async function ajustar(
             </section>
             <section class="adjustment-group" aria-labelledby="unit-adjustment-title">
               <h3 id="unit-adjustment-title">Unidades</h3>
+              <MedidorCircular
+                v-if="medidores"
+                :valor="medidores.unidadesProduzidas"
+                :maximo="medidores.quantidadeTotal"
+                unidade="unidades"
+              />
+              <p v-if="medidores" class="muted">
+                Faltam {{ medidores.unidadesFaltantes.toLocaleString("pt-BR") }}
+                {{ medidores.unidadesFaltantes === 1 ? "unidade" : "unidades" }}.
+              </p>
               <div class="field">
                 <label for="unit-adjustment-quantity">Quantidade de unidades</label>
                 <input
@@ -368,8 +507,11 @@ async function ajustar(
               >Abrir registros</RouterLink
             >
           </div>
-          <ul class="activity-list">
-            <li><span class="mono">agora</span> Aguardando a próxima atualização em tempo real.</li>
+          <ul class="activity-list" aria-live="polite">
+            <li v-if="ordem.registroMaisRecente" class="mono">
+              {{ ordem.registroMaisRecente }}
+            </li>
+            <li v-else>Nenhuma atividade registrada.</li>
           </ul>
         </section>
       </div>
@@ -382,8 +524,28 @@ async function ajustar(
         :tamanho-em-bytes="processo.tamanhoEmBytes"
         :modificado-em="processo.modificadoEm"
         :caminho="processo.caminhoNoServidor"
+        :url-da-previa="urlDaPrevia"
+        :carregando-previa="carregandoPrevia"
+        :erro-da-previa="erroDaPrevia"
         :descricao="`Arquivo exclusivo da etapa de ${rotuloDoProcesso(processo.tipo)}. Os ajustes desta tela afetam somente este processo.`"
-      />
+        @falha-na-previa="informarFalhaDaPrevia"
+      >
+        <template #acoes>
+          <button
+            class="btn btn--primary"
+            :disabled="porcentagemDownload !== null && porcentagemDownload < 100"
+            @click="baixarArquivo"
+          >
+            {{
+              porcentagemDownload === null
+                ? "Baixar arquivo"
+                : porcentagemDownload < 100
+                  ? `Baixando: ${porcentagemDownload}%`
+                  : "Baixar novamente (100%)"
+            }}
+          </button>
+        </template>
+      </PreviewDeArquivo>
     </section>
     <IdentificadorDaPagina rotulo="ID da Ordem de Serviço" :valor="id" />
   </main>

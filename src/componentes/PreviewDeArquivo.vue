@@ -12,6 +12,13 @@ defineProps<{
   tamanhoEmBytes?: number;
   modificadoEm?: Date;
   caminho?: string;
+  urlDaPrevia?: string;
+  carregandoPrevia?: boolean;
+  erroDaPrevia?: string;
+}>();
+
+defineEmits<{
+  falhaNaPrevia: [];
 }>();
 
 function formatarTamanho(tamanho: number): string {
@@ -39,8 +46,24 @@ function formatarData(data?: Date): string {
 <template>
   <aside class="card file-preview-card">
     <h2>{{ titulo }}</h2>
-    <div class="file-preview" role="img" :aria-label="`Prévia do arquivo ${nome}`">
-      <div class="preview-sheet" aria-hidden="true">
+    <div class="file-preview" aria-live="polite" :aria-busy="carregandoPrevia ? 'true' : undefined">
+      <p v-if="carregandoPrevia" class="muted">Carregando prévia...</p>
+      <img
+        v-else-if="urlDaPrevia"
+        class="file-preview__image"
+        :src="urlDaPrevia"
+        :alt="`Prévia do arquivo ${nome}`"
+        @error="$emit('falhaNaPrevia')"
+      />
+      <p v-else-if="erroDaPrevia" class="state-message state-message--error" role="alert">
+        {{ erroDaPrevia }}
+      </p>
+      <div
+        v-else
+        class="preview-sheet"
+        role="img"
+        :aria-label="`Arquivo ${nome} sem prévia visual`"
+      >
         <svg class="file-preview__icon" viewBox="0 0 96 120" focusable="false">
           <path d="M18 4h42l22 22v90H18z" />
           <path d="M60 4v24h22" />

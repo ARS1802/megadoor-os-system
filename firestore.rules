@@ -57,14 +57,6 @@ service cloud.firestore {
       return valor == null || valor is timestamp;
     }
 
-    function inteiroNaoNegativoOuNulo(valor) {
-      return valor == null || (valor is int && valor >= 0);
-    }
-
-    function numeroNaoNegativoOuNulo(valor) {
-      return valor == null || (valor is number && valor >= 0);
-    }
-
     function documentoFiscalEValido(documentoFiscal) {
       return documentoFiscal is map &&
         documentoFiscal.keys().hasAll(['tipo', 'numero']) &&
@@ -260,9 +252,8 @@ service cloud.firestore {
           'status',
           'ultimaAtividadeEm',
           'caminhoRegistro',
+          'registroMaisRecente',
           'caminhoObservacao',
-          'metragemQuadradaCalculada',
-          'quantidadeRolosCalculada',
           'criadaEm',
           'atualizadaEm'
         ]) &&
@@ -278,10 +269,9 @@ service cloud.firestore {
           'status',
           'ultimaAtividadeEm',
           'caminhoRegistro',
+          'registroMaisRecente',
           'caminhoObservacao',
           'dadosDeConclusao',
-          'metragemQuadradaCalculada',
-          'quantidadeRolosCalculada',
           'criadaEm',
           'atualizadaEm'
         ]) &&
@@ -302,14 +292,13 @@ service cloud.firestore {
         dados.caminhoRegistro.matches(
           '^ordens-de-servico/' + ordemId + '/registro\\.txt$'
         ) &&
+        dados.registroMaisRecente is string &&
         dados.caminhoObservacao is string &&
         dados.caminhoObservacao.matches(
           '^ordens-de-servico/' + ordemId + '/observacao\\.txt$'
         ) &&
         (!('dadosDeConclusao' in dados) ||
           dadosDaConclusaoSaoEstruturalmenteValidos(dados.dadosDeConclusao)) &&
-        numeroNaoNegativoOuNulo(dados.metragemQuadradaCalculada) &&
-        inteiroNaoNegativoOuNulo(dados.quantidadeRolosCalculada) &&
         dados.criadaEm is timestamp &&
         dados.atualizadaEm is timestamp;
     }
@@ -317,9 +306,8 @@ service cloud.firestore {
     function criacaoDeOrdemEValida(dados) {
       return dados.status == 'PRONTA' &&
         dados.ultimaAtividadeEm == null &&
-        !('dadosDeConclusao' in dados) &&
-        dados.metragemQuadradaCalculada == null &&
-        dados.quantidadeRolosCalculada == null;
+        dados.registroMaisRecente == '' &&
+        !('dadosDeConclusao' in dados);
     }
 
     function extensaoDoArquivoEValida(processoId, extensao) {
@@ -549,15 +537,9 @@ service cloud.firestore {
           'status',
           'ultimaAtividadeEm',
           'dadosDeConclusao',
-          'metragemQuadradaCalculada',
-          'quantidadeRolosCalculada',
           'atualizadaEm'
         ]) &&
         request.resource.data.ultimaAtividadeEm is timestamp &&
-        request.resource.data.metragemQuadradaCalculada is number &&
-        request.resource.data.metragemQuadradaCalculada >= 0 &&
-        request.resource.data.quantidadeRolosCalculada is int &&
-        request.resource.data.quantidadeRolosCalculada >= 0 &&
         request.resource.data.atualizadaEm is timestamp &&
         dadosDaConclusaoNormalSaoValidos() &&
         todosOsProcessosConcluidosAposAOperacao(ordemId);
@@ -570,14 +552,8 @@ service cloud.firestore {
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'status',
           'dadosDeConclusao',
-          'metragemQuadradaCalculada',
-          'quantidadeRolosCalculada',
           'atualizadaEm'
         ]) &&
-        request.resource.data.metragemQuadradaCalculada is number &&
-        request.resource.data.metragemQuadradaCalculada >= 0 &&
-        request.resource.data.quantidadeRolosCalculada is int &&
-        request.resource.data.quantidadeRolosCalculada >= 0 &&
         request.resource.data.atualizadaEm is timestamp &&
         dadosDaConclusaoForcadaSaoValidos();
     }
@@ -594,7 +570,8 @@ service cloud.firestore {
     }
 
     function podeAtualizarOrdem(ordemId) {
-      return (request.resource.data.status == 'EM_PRODUCAO' &&
+      return podeAtualizarRegistroMaisRecente() ||
+        (request.resource.data.status == 'EM_PRODUCAO' &&
           podeRegistrarOrdemEmProducao()) ||
         (request.resource.data.status == 'PARADA' &&
           podeMarcarOrdemComoParada()) ||
@@ -607,6 +584,15 @@ service cloud.firestore {
             (request.resource.data.dadosDeConclusao.foiForcada == false &&
               podeRegistrarConclusaoNormal(ordemId))
           ));
+    }
+
+    function podeAtualizarRegistroMaisRecente() {
+      return podeOperarMaquina() &&
+        'registroMaisRecente' in request.resource.data &&
+        request.resource.data.registroMaisRecente is string &&
+        request.resource.data.registroMaisRecente.size() > 0 &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['registroMaisRecente']);
     }
 
     function podeSubstituirArquivoDoProcesso(ordemId, processoId) {
@@ -650,12 +636,14 @@ service cloud.firestore {
       allow read: if usuarioAtivo();
       allow create: if podeCriarCadastrosEOrdens() &&
         materialEValido(request.resource.data) &&
+        request.resource.data.rolosUtilizados == 0 &&
         request.resource.data.referenciaUsuarioCriador == referenciaDoUsuario(request.auth.uid);
       allow update: if materialEValido(request.resource.data) && (
         (podeCriarCadastrosEOrdens() &&
+          request.resource.data.rolosUtilizados == resource.data.rolosUtilizados &&
           request.resource.data.referenciaUsuarioCriador ==
             resource.data.referenciaUsuarioCriador) ||
-        (podeOperarMaquina() &&
+        (possuiCargo(['ADMIN']) &&
           request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(['rolosUtilizados', 'atualizadoEm']))
       );

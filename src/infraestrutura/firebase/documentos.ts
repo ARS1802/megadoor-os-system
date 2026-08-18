@@ -62,6 +62,7 @@ export interface DocumentoOrdemDeServico {
   status: StatusOrdemDeServico;
   ultimaAtividadeEm: Timestamp | null;
   caminhoRegistro: string;
+  registroMaisRecente: string;
   caminhoObservacao: string;
   dadosDeConclusao?: {
     concluidaEm: Timestamp;
@@ -69,8 +70,6 @@ export interface DocumentoOrdemDeServico {
     foiForcada: boolean;
     justificativa?: string;
   };
-  metragemQuadradaCalculada: number | null;
-  quantidadeRolosCalculada: number | null;
   criadaEm: Timestamp;
   atualizadaEm: Timestamp;
 }

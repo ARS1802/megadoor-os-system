@@ -11,6 +11,14 @@
 .app-header__end {
   justify-content: flex-end;
 }
+.app-header__user {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
+  text-align: right;
+  white-space: nowrap;
+}
 .header-link--compact {
   min-height: 36px;
   padding: 6px 10px;
@@ -307,6 +315,13 @@
 }
 .file-preview-card .file-preview {
   min-height: 360px;
+}
+.file-preview__image {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: 340px;
+  object-fit: contain;
 }
 .file-preview__icon {
   width: 88px;

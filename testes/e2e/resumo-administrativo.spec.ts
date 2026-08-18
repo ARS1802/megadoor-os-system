@@ -8,21 +8,25 @@ async function entrarComoAdministrador(page: Page): Promise<void> {
   await expect(page).toHaveURL(/#\/administracao\/resumo$/);
 }
 
-test("resume a produção em uma linha por candidato", async ({ page }) => {
+test("resume a produção em uma linha por candidato e material", async ({ page }) => {
   await entrarComoAdministrador(page);
 
+  await expect(page.getByText("admin · Administrador", { exact: true })).toBeVisible();
+
   const card = page.getByRole("heading", { name: "Produção por Ordem de Serviço" }).locator("..");
-  const tabela = card.getByRole("table", { name: "Produção consolidada por candidato" });
+  const tabela = card.getByRole("table", {
+    name: "Produção consolidada por candidato e material",
+  });
   await expect(tabela.locator("tbody tr")).toHaveCount(3);
 
   const linhaNorte = tabela.locator("tbody tr").filter({ hasText: "Candidato Norte" });
   await expect(linhaNorte).toHaveCount(1);
-  await expect(linhaNorte.locator("td").nth(1)).toHaveText("415,8");
-  await expect(linhaNorte.locator("td").nth(2)).toHaveText("0");
+  await expect(linhaNorte.locator("td").nth(1)).toHaveText("Adesivo Branco");
+  await expect(linhaNorte.locator("td").nth(2)).toHaveText("1,17");
 
   const linhaPraia = tabela.locator("tbody tr").filter({ hasText: "Candidato Praia" });
-  await expect(linhaPraia.locator("td").nth(1)).toHaveText("106");
-  await expect(linhaPraia.locator("td").nth(2)).toHaveText("1");
+  await expect(linhaPraia.locator("td").nth(1)).toHaveText("Perfurado");
+  await expect(linhaPraia.locator("td").nth(2)).toHaveText("135,3");
 });
 
 test("Administrador abre a OS atual e navega por todas as etapas sem perder o resumo", async ({
@@ -58,6 +62,15 @@ test("Administrador abre a OS atual e navega por todas as etapas sem perder o re
       page.getByRole("heading", { name: new RegExp(`Produção de ${rotulo}`, "i") }),
     ).toBeVisible();
   }
+
+  const ajuste = page.getByRole("heading", { name: "Ajustar produção" }).locator("..");
+  await expect(ajuste.locator(".meter-value")).toHaveCount(2);
+  await expect(ajuste.locator(".meter-value").first()).toContainText("4/ 385 grades");
+  await expect(ajuste.locator(".meter-value").nth(1)).toContainText("208/ 20.000 unidades");
+  const atividade = page.locator("section.card").filter({
+    has: page.getByRole("heading", { name: "Atividade recente" }),
+  });
+  await expect(atividade.getByText("OPERACAO=demo-1", { exact: false })).toBeVisible();
 
   await page.getByRole("link", { name: /Detalhes/ }).click();
   await page.getByRole("link", { name: /Ordens/ }).click();

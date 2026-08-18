@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { calcularVariacaoEmUnidades } from "@/dominio/servicos/producao";
+import {
+  calcularMedidoresDaProducao,
+  calcularVariacaoEmUnidades,
+} from "@/dominio/servicos/producao";
 import { SentidoDoAjuste, TipoContadorProducao } from "@/dominio/enumeracoes";
 
 describe("abstração de grades sobre unidades", () => {
@@ -40,4 +43,22 @@ describe("abstração de grades sobre unidades", () => {
       calcularVariacaoEmUnidades(TipoContadorProducao.GRADE, SentidoDoAjuste.ADICIONAR, 52, 2),
     ).toThrow("exatamente uma grade");
   });
+
+  it.each([
+    [28, 4, 1, 2],
+    [30, 4, 1, 0],
+    [35, 5, 0, 0],
+  ])(
+    "deriva os medidores para %i de 30 unidades",
+    (unidades, gradesProduzidas, gradesFaltantes, unidadesFaltantes) => {
+      expect(calcularMedidoresDaProducao(unidades, 30, 7)).toEqual({
+        gradesProduzidas,
+        gradesNecessarias: 5,
+        gradesFaltantes,
+        unidadesProduzidas: unidades,
+        quantidadeTotal: 30,
+        unidadesFaltantes,
+      });
+    },
+  );
 });

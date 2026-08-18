@@ -22,6 +22,7 @@ import type {
   RepositorioDeOrdensDeServico,
   RepositorioDeUsuarios,
   ResultadoAjusteProducao,
+  ResultadoRecalculoDeRolos,
   ResultadoSubstituicaoArquivoDoProcesso,
 } from "@/aplicacao/contratos/Repositorios";
 import { Candidato } from "@/dominio/entidades/Candidato";
@@ -32,9 +33,14 @@ import { Usuario } from "@/dominio/entidades/Usuario";
 import {
   StatusOrdemDeServico,
   StatusSincronizacaoRegistro,
-  type TipoProcessoProducao,
+  TipoProcessoProducao,
 } from "@/dominio/enumeracoes";
-import { calcularVariacaoEmUnidades } from "@/dominio/servicos/producao";
+import {
+  calcularMetragemQuadradaProduzida,
+  calcularRolosUtilizadosPorMetragem,
+  calcularVariacaoEmUnidades,
+} from "@/dominio/servicos/producao";
+import { escolherRegistroMaisRecente } from "@/aplicacao/servicos/registrosDaOrdem";
 import { criarChaveDoNomeNormalizado } from "@/dominio/servicos/normalizacao";
 import { COLECOES } from "@/infraestrutura/firebase/colecoes";
 import { obterBancoDeDados } from "@/infraestrutura/firebase/configuracaoFirebase";
@@ -103,6 +109,10 @@ export class RepositorioDeCandidatosNoFirestore implements RepositorioDeCandidat
 }
 
 export class RepositorioDeMateriaisNoFirestore implements RepositorioDeMateriais {
+  private referenciaMaterial(id: string) {
+    return doc(obterBancoDeDados(), COLECOES.MATERIAIS, id).withConverter(conversorMaterial);
+  }
+
   gerarReferencia(): DocumentReference {
     return doc(collection(obterBancoDeDados(), COLECOES.MATERIAIS));
   }
@@ -154,6 +164,78 @@ export class RepositorioDeMateriaisNoFirestore implements RepositorioDeMateriais
   async obterPorReferencia(referencia: DocumentReference): Promise<Material | null> {
     const resultado = await getDoc(referencia.withConverter(conversorMaterial));
     return resultado.exists() ? resultado.data() : null;
+  }
+
+  async recalcularRolosUtilizados(idDoMaterial: string): Promise<ResultadoRecalculoDeRolos> {
+    const banco = obterBancoDeDados();
+    const referenciaMaterial = this.referenciaMaterial(idDoMaterial);
+    return runTransaction(banco, async (transacao) => {
+      const materialSnapshot = await transacao.get(referenciaMaterial);
+      if (!materialSnapshot.exists()) throw new Error("Material não encontrado.");
+      const material = materialSnapshot.data();
+      const referenciasUnicas = [
+        ...new Map(
+          material.referenciasOrdensDeServico.map((referencia) => [referencia.path, referencia]),
+        ).values(),
+      ];
+      const ordensSnapshots = await Promise.all(
+        referenciasUnicas.map((referencia) =>
+          transacao.get(referencia.withConverter(conversorOrdemDeServico)),
+        ),
+      );
+      const avisos: string[] = [];
+      const ordensComImpressao = ordensSnapshots.flatMap((snapshot, indice) => {
+        if (!snapshot.exists()) {
+          avisos.push(`A referência ${referenciasUnicas[indice]!.path} não foi encontrada.`);
+          return [];
+        }
+        const ordem = snapshot.data();
+        if (ordem.referenciaMaterial.path !== referenciaMaterial.path) {
+          avisos.push(`A OS ${ordem.id} referencia outro Material.`);
+          return [];
+        }
+        return ordem.tiposDeProcessos.includes(TipoProcessoProducao.IMPRESSAO) ? [ordem] : [];
+      });
+      const processosSnapshots = await Promise.all(
+        ordensComImpressao.map((ordem) =>
+          transacao.get(
+            doc(
+              banco,
+              COLECOES.ORDENS_DE_SERVICO,
+              ordem.id,
+              COLECOES.PROCESSOS,
+              TipoProcessoProducao.IMPRESSAO.toLowerCase(),
+            ).withConverter(conversorProcesso),
+          ),
+        ),
+      );
+      let metragemQuadradaProduzida = 0;
+      processosSnapshots.forEach((snapshot, indice) => {
+        const ordem = ordensComImpressao[indice]!;
+        if (!snapshot.exists()) {
+          avisos.push(`O processo de Impressão da OS ${ordem.id} não foi encontrado.`);
+          return;
+        }
+        metragemQuadradaProduzida += calcularMetragemQuadradaProduzida(
+          ordem.dimensoesDaUnidade.larguraEmCentimetros,
+          ordem.dimensoesDaUnidade.alturaEmCentimetros,
+          snapshot.data().unidadesProduzidas,
+        );
+      });
+      const rolosUtilizados = calcularRolosUtilizadosPorMetragem(
+        metragemQuadradaProduzida,
+        material.dimensoesDoRolo.larguraEmCentimetros,
+        material.dimensoesDoRolo.comprimentoEmCentimetros,
+      );
+      const alterado = rolosUtilizados !== material.rolosUtilizados;
+      if (alterado) {
+        transacao.update(referenciaMaterial, {
+          rolosUtilizados,
+          atualizadoEm: Timestamp.now(),
+        });
+      }
+      return { alterado, rolosUtilizados, avisos };
+    });
   }
 }
 
@@ -324,11 +406,6 @@ export class RepositorioDeOrdensNoFirestore implements RepositorioDeOrdensDeServ
           ? unidades >= snapshot.data().metaDeUnidades
           : snapshot.data().unidadesProduzidas >= snapshot.data().metaDeUnidades;
       });
-      const materialSnapshot = todosConcluidos
-        ? await transacao.get(ordem.referenciaMaterial.withConverter(conversorMaterial))
-        : null;
-      if (todosConcluidos && !materialSnapshot?.exists())
-        throw new Error("Material não encontrado.");
       const agora = Timestamp.now();
       transacao.update(referenciaProcesso, {
         unidadesProduzidas: unidades,
@@ -337,9 +414,6 @@ export class RepositorioDeOrdensNoFirestore implements RepositorioDeOrdensDeServ
         atualizadoEm: agora,
       });
       if (todosConcluidos) {
-        const material = materialSnapshot!.data();
-        const metragem = ordem.calcularMetragemQuadrada();
-        const rolos = ordem.calcularQuantidadeDeRolos(material);
         transacao.update(referenciaOrdem, {
           status: StatusOrdemDeServico.CONCLUIDA,
           ultimaAtividadeEm: agora,
@@ -348,12 +422,7 @@ export class RepositorioDeOrdensNoFirestore implements RepositorioDeOrdensDeServ
             referenciaUsuarioResponsavel: entrada.referenciaUsuario,
             foiForcada: false,
           },
-          metragemQuadradaCalculada: metragem,
-          quantidadeRolosCalculada: rolos,
           atualizadaEm: agora,
-        });
-        transacao.update(ordem.referenciaMaterial, {
-          rolosUtilizados: material.rolosUtilizados + rolos,
         });
       } else {
         transacao.update(referenciaOrdem, {
@@ -392,6 +461,19 @@ export class RepositorioDeOrdensNoFirestore implements RepositorioDeOrdensDeServ
       transacao.update(referencia, {
         sincronizacaoDoRegistro: StatusSincronizacaoRegistro.CONCLUIDA,
       });
+    });
+  }
+
+  async atualizarRegistroMaisRecente(idDaOrdem: string, linha: string): Promise<void> {
+    const banco = obterBancoDeDados();
+    const referencia = this.referenciaOrdem(idDaOrdem);
+    await runTransaction(banco, async (transacao) => {
+      const snapshot = await transacao.get(referencia);
+      if (!snapshot.exists()) throw new Error("OS não encontrada.");
+      const atual = snapshot.data().registroMaisRecente;
+      const maisRecente = escolherRegistroMaisRecente(atual, linha);
+      if (maisRecente === atual) return;
+      transacao.update(referencia, { registroMaisRecente: maisRecente });
     });
   }
 
@@ -459,19 +541,12 @@ export class RepositorioDeOrdensNoFirestore implements RepositorioDeOrdensDeServ
       const referenciasProcessos = ordem.tiposDeProcessos.map((tipo) =>
         this.referenciaProcesso(ordem.id, tipo),
       );
-      const materialSnapshot = await transacao.get(
-        ordem.referenciaMaterial.withConverter(conversorMaterial),
-      );
       const processosSnapshots = await Promise.all(
         referenciasProcessos.map((referenciaProcesso) => transacao.get(referenciaProcesso)),
       );
-      if (!materialSnapshot.exists()) throw new Error("Material não encontrado.");
       if (processosSnapshots.some((processo) => !processo.exists())) {
         throw new Error("Um dos processos da OS não foi encontrado.");
       }
-      const material = materialSnapshot.data();
-      const metragem = ordem.calcularMetragemQuadrada();
-      const rolos = ordem.calcularQuantidadeDeRolos(material);
       const agora = Timestamp.now();
       transacao.update(referencia, {
         status: StatusOrdemDeServico.CONCLUIDA,
@@ -481,12 +556,7 @@ export class RepositorioDeOrdensNoFirestore implements RepositorioDeOrdensDeServ
           foiForcada: true,
           justificativa: justificativa.trim(),
         },
-        metragemQuadradaCalculada: metragem,
-        quantidadeRolosCalculada: rolos,
         atualizadaEm: agora,
-      });
-      transacao.update(ordem.referenciaMaterial, {
-        rolosUtilizados: material.rolosUtilizados + rolos,
       });
       return {
         processos: processosSnapshots.map((processo) => {

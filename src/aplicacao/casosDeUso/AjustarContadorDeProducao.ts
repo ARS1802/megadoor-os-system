@@ -3,7 +3,10 @@ import type {
   EntradaAjusteProducao,
   ResultadoAjusteProducao,
 } from "@/aplicacao/contratos/Repositorios";
-import type { ServidorDeArquivosDaOrdem } from "@/aplicacao/contratos/ServidorDeArquivosDaOrdem";
+import {
+  exigirServidorDisponivel,
+  type ServidorDeArquivosDaOrdem,
+} from "@/aplicacao/contratos/ServidorDeArquivosDaOrdem";
 import { criarLinhaDeAjuste } from "@/aplicacao/servicos/registrosDaOrdem";
 
 export class AjustarContadorDeProducao {
@@ -17,6 +20,7 @@ export class AjustarContadorDeProducao {
     caminhoRegistro: string,
     nomeDoUsuario: string,
   ): Promise<ResultadoAjusteProducao> {
+    await exigirServidorDisponivel(this.arquivos);
     const resultado = await this.ordens.ajustarProducao(entrada);
     if (resultado.operacaoJaExistia) {
       return {
@@ -35,7 +39,6 @@ export class AjustarContadorDeProducao {
       });
       try {
         await this.arquivos.acrescentarRegistro(caminhoRegistro, linha);
-        await this.ordens.confirmarSincronizacaoDoRegistro(entrada.idDaOperacao);
       } catch {
         // A transação de produção já foi confirmada. Retornar sucesso
         // parcial evita que o operador repita o ajuste e duplique unidades.
@@ -45,6 +48,18 @@ export class AjustarContadorDeProducao {
             "A produção foi salva, mas a confirmação do registro de auditoria ficou pendente. Não repita o ajuste.",
         };
       }
+      const avisos: string[] = [];
+      try {
+        await this.ordens.atualizarRegistroMaisRecente(entrada.idDaOrdem, linha);
+      } catch {
+        avisos.push("O registro foi gravado, mas a atividade recente não pôde ser atualizada.");
+      }
+      try {
+        await this.ordens.confirmarSincronizacaoDoRegistro(entrada.idDaOperacao);
+      } catch {
+        avisos.push("A confirmação interna da auditoria ficou pendente.");
+      }
+      if (avisos.length) return { ...resultado, aviso: avisos.join(" ") };
     }
     return resultado;
   }

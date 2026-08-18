@@ -193,11 +193,16 @@ describe("usarDados em modo Firestore", () => {
     ]);
 
     const ordemAtualizada = ordem();
-    Object.assign(ordemAtualizada, { status: StatusOrdemDeServico.EM_PRODUCAO });
+    Object.assign(ordemAtualizada, {
+      status: StatusOrdemDeServico.EM_PRODUCAO,
+      registroMaisRecente:
+        "[2026-08-12T12:05:00.000Z] | USUARIO=Ana | PROCESSO=IMPRESSAO | UNIDADES=+10",
+    });
     ambiente.observarOrdens([ordemAtualizada]);
     await vi.waitFor(() =>
       expect(dados.ordens.value[0]?.status).toBe(StatusOrdemDeServico.EM_PRODUCAO),
     );
+    expect(dados.ordens.value[0]?.registroMaisRecente).toContain("USUARIO=Ana");
     // Uma alteração da OS não deve reler candidato, material e todos os processos.
     // Os listeners próprios já mantêm essas três relações sincronizadas.
     ambiente.leiturasRelacionadas.forEach((leitura) => expect(leitura).toHaveBeenCalledOnce());

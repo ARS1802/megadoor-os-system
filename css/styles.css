@@ -886,6 +886,10 @@ h3 {
 }
 
 .meter-value {
+  --meter-progress: 0%;
+
+  position: relative;
+  isolation: isolate;
   display: flex;
   width: 150px;
   height: 150px;
@@ -893,12 +897,27 @@ h3 {
   align-items: center;
   justify-content: center;
   margin: 16px auto;
-  border: 12px solid var(--blue);
+  padding: 12px;
+  border: 0;
   border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    var(--blue) 0 var(--meter-progress),
+    var(--border) var(--meter-progress) 100%
+  );
   font-size: 26px;
   font-weight: 700;
   line-height: 1.15;
   text-align: center;
+}
+
+.meter-value::before {
+  position: absolute;
+  z-index: -1;
+  inset: 12px;
+  border-radius: inherit;
+  background: var(--surface);
+  content: "";
 }
 
 .meter-value small {

@@ -4,6 +4,7 @@ import { ForcarConclusaoDaOrdem } from "@/aplicacao/casosDeUso/ForcarConclusaoDa
 import { ReenviarArquivoDoProcesso } from "@/aplicacao/casosDeUso/ReenviarArquivoDoProcesso";
 import { CriarCandidato } from "@/aplicacao/casosDeUso/CriarCandidato";
 import { CriarMaterial } from "@/aplicacao/casosDeUso/CriarMaterial";
+import { RecalcularRolosUtilizadosDosMateriais } from "@/aplicacao/casosDeUso/RecalcularRolosUtilizadosDosMateriais";
 import {
   RepositorioDeCandidatosNoFirestore,
   RepositorioDeMateriaisNoFirestore,
@@ -31,4 +32,5 @@ export const casosDeUso = {
   ajustarContador: new AjustarContadorDeProducao(repositorioDeOrdens, servidorDeArquivos),
   forcarConclusao: new ForcarConclusaoDaOrdem(repositorioDeOrdens, servidorDeArquivos),
   reenviarArquivo: new ReenviarArquivoDoProcesso(repositorioDeOrdens, servidorDeArquivos),
+  recalcularRolosUtilizados: new RecalcularRolosUtilizadosDosMateriais(repositorioDeMateriais),
 };

@@ -119,6 +119,7 @@ export const conversorOrdemDeServico: FirestoreDataConverter<
       status: ordem.status,
       ultimaAtividadeEm: ordem.ultimaAtividadeEm ? data(ordem.ultimaAtividadeEm) : null,
       caminhoRegistro: ordem.caminhoRegistro,
+      registroMaisRecente: ordem.registroMaisRecente,
       caminhoObservacao: ordem.caminhoObservacao,
       ...(ordem.dadosDeConclusao
         ? {
@@ -128,16 +129,20 @@ export const conversorOrdemDeServico: FirestoreDataConverter<
             },
           }
         : {}),
-      metragemQuadradaCalculada: ordem.metragemQuadradaCalculada,
-      quantidadeRolosCalculada: ordem.quantidadeRolosCalculada,
       criadaEm: data(ordem.criadaEm),
       atualizadaEm: data(ordem.atualizadaEm),
     };
   },
   fromFirestore(snapshot, options) {
-    const dados = esquemaDocumentoOrdemDeServico.parse(
-      snapshot.data(options),
-    ) as DocumentoOrdemDeServico;
+    const dadosBrutos = snapshot.data(options) as Record<string, unknown>;
+    // Compatibilidade temporária: o domínio não conhece mais estas métricas,
+    // mas documentos anteriores à migração ainda podem contê-las.
+    const {
+      metragemQuadradaCalculada: _metragemLegada,
+      quantidadeRolosCalculada: _rolosLegados,
+      ...documentoAtual
+    } = dadosBrutos;
+    const dados = esquemaDocumentoOrdemDeServico.parse(documentoAtual) as DocumentoOrdemDeServico;
     return new OrdemDeServico({
       ...dados,
       id: snapshot.id,

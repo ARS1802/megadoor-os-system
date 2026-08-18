@@ -89,9 +89,8 @@ function ordemValida(banco: Firestore, id: string, alteracoes: Record<string, un
     status: "PRONTA",
     ultimaAtividadeEm: null,
     caminhoRegistro: `ordens-de-servico/${id}/registro.txt`,
+    registroMaisRecente: "",
     caminhoObservacao: `ordens-de-servico/${id}/observacao.txt`,
-    metragemQuadradaCalculada: null,
-    quantidadeRolosCalculada: null,
     criadaEm: instante(),
     atualizadaEm: instante(),
     ...alteracoes,
@@ -208,6 +207,12 @@ describe("regras estruturais do Firestore", () => {
       setDoc(doc(designer, "materiais", "sem-marca"), materialValido(designer, { marca: "" })),
     );
     await assertFails(
+      setDoc(
+        doc(designer, "materiais", "com-rolos-na-criacao"),
+        materialValido(designer, { rolosUtilizados: 1 }),
+      ),
+    );
+    await assertFails(
       setDoc(doc(designer, "materiais", "campo-indevido"), {
         ...materialValido(designer),
         ativo: true,
@@ -223,6 +228,40 @@ describe("regras estruturais do Firestore", () => {
     await assertFails(
       setDoc(doc(designer, "nomes-de-materiais", "reserva-invalida"), {
         referenciaMaterial,
+      }),
+    );
+  });
+
+  it("permite somente ao Administrador recalcular rolos sem alterar o catálogo", async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      const banco = contexto.firestore();
+      await setDoc(doc(banco, "materiais", "material-recalculo"), materialValido(banco));
+    });
+    const admin = ambiente.authenticatedContext("admin").firestore();
+    const designer = ambiente.authenticatedContext("designer").firestore();
+    await assertSucceeds(
+      updateDoc(doc(admin, "materiais", "material-recalculo"), {
+        rolosUtilizados: 2,
+        atualizadoEm: instante(5),
+      }),
+    );
+    await assertSucceeds(
+      updateDoc(doc(designer, "materiais", "material-recalculo"), {
+        marca: "Marca atualizada",
+        atualizadoEm: instante(6),
+      }),
+    );
+    await assertFails(
+      updateDoc(doc(designer, "materiais", "material-recalculo"), {
+        rolosUtilizados: 3,
+        atualizadoEm: instante(7),
+      }),
+    );
+    await assertFails(
+      updateDoc(doc(admin, "materiais", "material-recalculo"), {
+        rolosUtilizados: 3,
+        marca: "Alteração simultânea",
+        atualizadoEm: instante(8),
       }),
     );
   });
@@ -255,12 +294,18 @@ describe("regras estruturais do Firestore", () => {
     );
   });
 
-  it("exige que a OS seja criada no estado inicial, sem conclusão ou métricas", async () => {
+  it("exige que a OS seja criada no estado inicial e sem campos derivados", async () => {
     const designer = ambiente.authenticatedContext("designer").firestore();
 
     for (const [id, alteracoes] of [
       ["os-em-producao", { status: "EM_PRODUCAO" }],
       ["os-com-atividade", { ultimaAtividadeEm: instante(5) }],
+      [
+        "os-com-registro",
+        {
+          registroMaisRecente: "[2026-08-12T12:05:00.000Z] | USUARIO=designer | UNIDADES=+1",
+        },
+      ],
       ["os-com-metragem", { metragemQuadradaCalculada: 4 }],
       ["os-com-rolos", { quantidadeRolosCalculada: 1 }],
       [
@@ -736,8 +781,6 @@ describe("regras operacionais do Firestore", () => {
         referenciaUsuarioResponsavel: referenciaUsuario,
         foiForcada: false,
       },
-      metragemQuadradaCalculada: 4,
-      quantidadeRolosCalculada: 1,
       atualizadaEm: instante(5),
     };
 
@@ -780,8 +823,6 @@ describe("regras operacionais do Firestore", () => {
           foiForcada: true,
           justificativa,
         },
-        metragemQuadradaCalculada: 4,
-        quantidadeRolosCalculada: 1,
         atualizadaEm: instante(5),
       };
     }
@@ -853,5 +894,47 @@ describe("regras operacionais do Firestore", () => {
       }),
     );
     await assertFails(updateDoc(doc(designer, "ordens-de-servico", "os-designer"), { tiragem: 2 }));
+  });
+
+  it("permite aos operadores atualizar somente o registro recente, inclusive em OS concluída", async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      const banco = contexto.firestore();
+      for (const id of ["os-registro-admin", "os-registro-designer", "os-registro-maquinista"]) {
+        await setDoc(
+          doc(banco, "ordens-de-servico", id),
+          ordemValida(banco, id, { status: "CONCLUIDA" }),
+        );
+      }
+      const legada = ordemValida(banco, "os-registro-legado");
+      delete (legada as { registroMaisRecente?: string }).registroMaisRecente;
+      await setDoc(doc(banco, "ordens-de-servico", "os-registro-legado"), legada);
+    });
+
+    for (const usuarioId of ["admin", "designer", "maquinista"]) {
+      const banco = ambiente.authenticatedContext(usuarioId).firestore();
+      await assertSucceeds(
+        updateDoc(doc(banco, "ordens-de-servico", `os-registro-${usuarioId}`), {
+          registroMaisRecente: `[2026-08-12T12:05:00.000Z] | USUARIO=${usuarioId}`,
+        }),
+      );
+    }
+
+    const designer = ambiente.authenticatedContext("designer").firestore();
+    await assertSucceeds(
+      updateDoc(doc(designer, "ordens-de-servico", "os-registro-legado"), {
+        registroMaisRecente: "[2026-08-12T12:05:00.000Z] | USUARIO=designer",
+      }),
+    );
+    await assertFails(
+      updateDoc(doc(designer, "ordens-de-servico", "os-registro-designer"), {
+        registroMaisRecente: "",
+      }),
+    );
+    await assertFails(
+      updateDoc(doc(designer, "ordens-de-servico", "os-registro-designer"), {
+        registroMaisRecente: "[2026-08-12T12:06:00.000Z] | USUARIO=designer",
+        tiragem: 2,
+      }),
+    );
   });
 });

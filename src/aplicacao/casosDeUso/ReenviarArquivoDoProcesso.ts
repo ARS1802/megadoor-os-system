@@ -68,20 +68,18 @@ export class ReenviarArquivoDoProcesso {
 
     const avisos: string[] = [];
     const idDaOperacao = crypto.randomUUID();
+    const linha = criarLinhaDeSubstituicaoDeArquivo({
+      idDaOperacao,
+      nomeDoUsuario: entrada.usuarioResponsavel.nome,
+      processo: entrada.tipoProcesso,
+      nomeDoArquivoAnterior: resultado.arquivoAnterior.nomeOriginal,
+      caminhoDoArquivoAnterior: resultado.arquivoAnterior.caminhoNoServidor,
+      nomeDoArquivoNovo: resultado.arquivoNovo.nomeOriginal,
+      caminhoDoArquivoNovo: resultado.arquivoNovo.caminhoNoServidor,
+    });
     let registroFoiGravado = false;
     try {
-      await this.arquivos.acrescentarRegistro(
-        entrada.caminhoRegistro,
-        criarLinhaDeSubstituicaoDeArquivo({
-          idDaOperacao,
-          nomeDoUsuario: entrada.usuarioResponsavel.nome,
-          processo: entrada.tipoProcesso,
-          nomeDoArquivoAnterior: resultado.arquivoAnterior.nomeOriginal,
-          caminhoDoArquivoAnterior: resultado.arquivoAnterior.caminhoNoServidor,
-          nomeDoArquivoNovo: resultado.arquivoNovo.nomeOriginal,
-          caminhoDoArquivoNovo: resultado.arquivoNovo.caminhoNoServidor,
-        }),
-      );
+      await this.arquivos.acrescentarRegistro(entrada.caminhoRegistro, linha);
       registroFoiGravado = true;
     } catch {
       // O ponteiro já foi trocado por CAS. Informar sucesso parcial evita que o
@@ -90,6 +88,14 @@ export class ReenviarArquivoDoProcesso {
         `O arquivo foi substituído, mas o registro de auditoria ${idDaOperacao} ficou pendente.`,
       );
       avisos.push("O arquivo anterior foi mantido no servidor para recuperação.");
+    }
+
+    if (registroFoiGravado) {
+      try {
+        await this.ordens.atualizarRegistroMaisRecente(entrada.idDaOrdem, linha);
+      } catch {
+        avisos.push("O registro foi gravado, mas a atividade recente não pôde ser atualizada.");
+      }
     }
 
     if (

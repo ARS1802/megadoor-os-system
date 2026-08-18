@@ -6,7 +6,6 @@ import type {
   DimensoesDaUnidade,
   EspecificacaoDeGrade,
 } from "@/dominio/objetosDeValor";
-import type { Material } from "@/dominio/entidades/Material";
 
 export interface PropriedadesOrdemDeServico {
   id: string;
@@ -21,10 +20,9 @@ export interface PropriedadesOrdemDeServico {
   status?: StatusOrdemDeServico;
   ultimaAtividadeEm?: Date | null;
   caminhoRegistro: string;
+  registroMaisRecente?: string;
   caminhoObservacao: string;
   dadosDeConclusao?: DadosDeConclusao;
-  metragemQuadradaCalculada?: number | null;
-  quantidadeRolosCalculada?: number | null;
   criadaEm?: Date;
   atualizadaEm?: Date;
 }
@@ -42,10 +40,9 @@ export class OrdemDeServico {
   readonly status: StatusOrdemDeServico;
   readonly ultimaAtividadeEm: Date | null;
   readonly caminhoRegistro: string;
+  readonly registroMaisRecente: string;
   readonly caminhoObservacao: string;
   readonly dadosDeConclusao?: DadosDeConclusao;
-  readonly metragemQuadradaCalculada: number | null;
-  readonly quantidadeRolosCalculada: number | null;
   readonly criadaEm: Date;
   readonly atualizadaEm: Date;
 
@@ -70,32 +67,10 @@ export class OrdemDeServico {
       tiposDeProcessos: tipos,
       status: propriedades.status ?? StatusOrdemDeServico.PRONTA,
       ultimaAtividadeEm: propriedades.ultimaAtividadeEm ?? null,
-      metragemQuadradaCalculada: propriedades.metragemQuadradaCalculada ?? null,
-      quantidadeRolosCalculada: propriedades.quantidadeRolosCalculada ?? null,
+      registroMaisRecente: propriedades.registroMaisRecente ?? "",
       criadaEm: propriedades.criadaEm ?? agora,
       atualizadaEm: propriedades.atualizadaEm ?? agora,
     });
-  }
-
-  calcularQuantidadeDeGrades(): number {
-    return Math.ceil(this.quantidadeTotal / this.especificacaoDeGrade.unidadesPorGrade);
-  }
-
-  calcularMetragemQuadrada(): number {
-    const larguraEmMetros = this.especificacaoDeGrade.larguraEmCentimetros / 100;
-    const alturaEmMetros = this.especificacaoDeGrade.alturaEmCentimetros / 100;
-    return larguraEmMetros * alturaEmMetros * this.calcularQuantidadeDeGrades();
-  }
-
-  calcularQuantidadeDeRolos(material: Material): number {
-    if (
-      this.especificacaoDeGrade.larguraEmCentimetros > material.dimensoesDoRolo.larguraEmCentimetros
-    ) {
-      throw new ErroDeDominio("A largura da grade é maior que a largura do rolo.");
-    }
-    const comprimentoUtilizado =
-      this.especificacaoDeGrade.alturaEmCentimetros * this.calcularQuantidadeDeGrades();
-    return Math.ceil(comprimentoUtilizado / material.dimensoesDoRolo.comprimentoEmCentimetros);
   }
 
   verificarSeAceitaProducao(): void {

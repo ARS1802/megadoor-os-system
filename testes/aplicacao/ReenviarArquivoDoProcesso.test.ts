@@ -30,9 +30,13 @@ function preparar() {
   });
   const enviarSubstituicaoDoArquivo = vi.fn().mockResolvedValue(arquivoNovo);
   const acrescentarRegistro = vi.fn().mockResolvedValue(undefined);
+  const atualizarRegistroMaisRecente = vi.fn().mockResolvedValue(undefined);
   const removerArquivoDoProcesso = vi.fn().mockResolvedValue(undefined);
   const caso = new ReenviarArquivoDoProcesso(
-    { substituirArquivoDoProcesso } as unknown as RepositorioDeOrdensDeServico,
+    {
+      substituirArquivoDoProcesso,
+      atualizarRegistroMaisRecente,
+    } as unknown as RepositorioDeOrdensDeServico,
     {
       enviarSubstituicaoDoArquivo,
       acrescentarRegistro,
@@ -44,6 +48,7 @@ function preparar() {
     substituirArquivoDoProcesso,
     enviarSubstituicaoDoArquivo,
     acrescentarRegistro,
+    atualizarRegistroMaisRecente,
     removerArquivoDoProcesso,
   };
 }
@@ -86,6 +91,9 @@ describe("reenvio de arquivo de um processo", () => {
     dependencias.acrescentarRegistro.mockImplementation(async () => {
       ordemDasOperacoes.push("registro");
     });
+    dependencias.atualizarRegistroMaisRecente.mockImplementation(async () => {
+      ordemDasOperacoes.push("atividade");
+    });
     dependencias.removerArquivoDoProcesso.mockImplementation(async () => {
       ordemDasOperacoes.push("limpeza");
     });
@@ -93,7 +101,7 @@ describe("reenvio de arquivo de um processo", () => {
     const resultado = await dependencias.caso.executar(entrada());
 
     expect(resultado).toEqual({ arquivoNovo });
-    expect(ordemDasOperacoes).toEqual(["upload", "firestore", "registro", "limpeza"]);
+    expect(ordemDasOperacoes).toEqual(["upload", "firestore", "registro", "atividade", "limpeza"]);
     expect(dependencias.substituirArquivoDoProcesso).toHaveBeenCalledWith({
       idDaOrdem: "OS-1",
       tipoProcesso: TipoProcessoProducao.IMPRESSAO,
@@ -108,6 +116,7 @@ describe("reenvio de arquivo de um processo", () => {
     expect(linha).toContain("USUARIO=Ana Designer");
     expect(linha).toContain("ARQUIVO_ANTERIOR=arte.pdf");
     expect(linha).toContain("ARQUIVO_NOVO=arte-corrigida.pdf");
+    expect(dependencias.atualizarRegistroMaisRecente).toHaveBeenCalledWith("OS-1", linha);
   });
 
   it("apaga o arquivo staged se o CAS no Firestore falhar", async () => {
@@ -121,6 +130,7 @@ describe("reenvio de arquivo de um processo", () => {
       arquivoNovo.caminhoNoServidor,
     );
     expect(dependencias.acrescentarRegistro).not.toHaveBeenCalled();
+    expect(dependencias.atualizarRegistroMaisRecente).not.toHaveBeenCalled();
   });
 
   it("retorna sucesso com aviso se o append falhar depois do commit", async () => {
@@ -134,6 +144,18 @@ describe("reenvio de arquivo de um processo", () => {
     expect(resultado.aviso).toContain("auditoria");
     expect(resultado.aviso).toContain("mantido no servidor para recuperação");
     expect(dependencias.removerArquivoDoProcesso).not.toHaveBeenCalled();
+    expect(dependencias.atualizarRegistroMaisRecente).not.toHaveBeenCalled();
+  });
+
+  it("mantém o reupload quando apenas a atividade recente falha", async () => {
+    const dependencias = preparar();
+    dependencias.atualizarRegistroMaisRecente.mockRejectedValue(new Error("Firestore offline"));
+
+    const resultado = await dependencias.caso.executar(entrada());
+
+    expect(resultado.arquivoNovo).toBe(arquivoNovo);
+    expect(resultado.aviso).toContain("atividade recente");
+    expect(dependencias.removerArquivoDoProcesso).toHaveBeenCalledOnce();
   });
 
   it("mantém o novo arquivo ativo e avisa se a limpeza do anterior falhar", async () => {

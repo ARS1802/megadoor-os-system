@@ -1,46 +1,41 @@
+import { calcularMetragemQuadradaProduzida } from "@/dominio/servicos/producao";
+
 export interface OrdemParaResumoDaProducao {
   candidatoId: string;
   nomeDoCandidato: string;
-  larguraGrade: number;
-  alturaGrade: number;
-  unidadesPorGrade: number;
-  quantidadeTotal: number;
-  quantidadeRolosCalculada?: number | null;
+  materialId: string;
+  nomeDoMaterial: string;
+  larguraDaUnidadeEmCentimetros: number;
+  alturaDaUnidadeEmCentimetros: number;
+  unidadesImpressas: number;
 }
 
-export interface ProducaoResumidaPorCandidato {
+export interface ProducaoResumidaPorCandidatoEMaterial {
   id: string;
   candidato: string;
+  material: string;
   metragem: number;
-  rolos: number;
 }
 
-function calcularMetragemDaOrdem(ordem: OrdemParaResumoDaProducao): number {
-  const quantidadeDeGrades = Math.ceil(ordem.quantidadeTotal / ordem.unidadesPorGrade);
-  const areaDeUmaGrade = (ordem.larguraGrade / 100) * (ordem.alturaGrade / 100);
-  return areaDeUmaGrade * quantidadeDeGrades;
-}
-
-/**
- * Consolida as OS pelo candidato sem usar o acumulado global do Material.
- * Esse acumulado não permite identificar qual candidato consumiu cada rolo.
- */
-export function resumirProducaoPorCandidato(
+export function resumirProducaoPorCandidatoEMaterial(
   ordens: OrdemParaResumoDaProducao[],
-): ProducaoResumidaPorCandidato[] {
-  const resumo = new Map<string, ProducaoResumidaPorCandidato>();
+): ProducaoResumidaPorCandidatoEMaterial[] {
+  const resumo = new Map<string, ProducaoResumidaPorCandidatoEMaterial>();
 
   for (const ordem of ordens) {
-    const linha = resumo.get(ordem.candidatoId) ?? {
-      id: ordem.candidatoId,
+    const chave = `${ordem.candidatoId}\u0000${ordem.materialId}`;
+    const linha = resumo.get(chave) ?? {
+      id: `${ordem.candidatoId}-${ordem.materialId}`,
       candidato: ordem.nomeDoCandidato,
+      material: ordem.nomeDoMaterial,
       metragem: 0,
-      rolos: 0,
     };
-
-    linha.metragem += calcularMetragemDaOrdem(ordem);
-    linha.rolos += ordem.quantidadeRolosCalculada ?? 0;
-    resumo.set(ordem.candidatoId, linha);
+    linha.metragem += calcularMetragemQuadradaProduzida(
+      ordem.larguraDaUnidadeEmCentimetros,
+      ordem.alturaDaUnidadeEmCentimetros,
+      ordem.unidadesImpressas,
+    );
+    resumo.set(chave, linha);
   }
 
   return [...resumo.values()];

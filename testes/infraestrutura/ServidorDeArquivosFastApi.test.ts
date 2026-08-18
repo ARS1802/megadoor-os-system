@@ -6,7 +6,9 @@ import {
   ErroConcorrenciaTemporaria,
   ErroContratoDoServidor,
   ErroIntegridadeDoArquivo,
+  ErroServidorNaoConfigurado,
   ErroServidorMegadoor,
+  MENSAGEM_SERVIDOR_NAO_CONFIGURADO,
   ServidorDeArquivosFastApi,
 } from "@/infraestrutura/servidor/ServidorDeArquivosFastApi";
 import { TipoProcessoProducao } from "@/dominio/enumeracoes";
@@ -18,7 +20,10 @@ vi.mock("@/infraestrutura/arquivos/calcularSha256DoArquivo", () => ({
 const SHA_LOCAL = "a".repeat(64);
 
 function servidor(): ServidorDeArquivosFastApi {
-  return new ServidorDeArquivosFastApi(() => "usuario-designer-1");
+  return new ServidorDeArquivosFastApi(
+    () => "usuario-designer-1",
+    async () => true,
+  );
 }
 
 function respostaDeUpload(
@@ -44,6 +49,49 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
+});
+
+describe("verificação rápida antes de acessar a FastAPI", () => {
+  it("consulta /health antes da operação solicitada", async () => {
+    const requisicao = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(Response.json({ status: "ok" }))
+      .mockResolvedValueOnce(Response.json({ status: "ok" }));
+    const api = new ServidorDeArquivosFastApi(() => "usuario-designer-1");
+
+    await api.criarDiretorioDaOrdem("OS-1");
+
+    expect(requisicao.mock.calls.map(([url]) => String(url))).toEqual([
+      "https://192.168.0.10:8443/health",
+      "https://192.168.0.10:8443/api/folders",
+    ]);
+  });
+
+  it("interrompe a operação e informa a configuração quando /health não responde", async () => {
+    const requisicao = vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("offline"));
+    const api = new ServidorDeArquivosFastApi(() => "usuario-designer-1");
+
+    const operacao = api.enviarImagemDaEtiquetaDoMaterial(
+      "material-1",
+      new File(["imagem"], "etiqueta.png", { type: "image/png" }),
+    );
+
+    await expect(operacao).rejects.toBeInstanceOf(ErroServidorNaoConfigurado);
+    await expect(operacao).rejects.toThrow(MENSAGEM_SERVIDOR_NAO_CONFIGURADO);
+    expect(requisicao).toHaveBeenCalledOnce();
+    expect(calcularSha256DoArquivo).not.toHaveBeenCalled();
+  });
+
+  it("considera inválido um endpoint que responde sem status ok", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ status: "degraded" }));
+
+    await expect(
+      new ServidorDeArquivosFastApi(() => "usuario-designer-1").acrescentarRegistro(
+        "ordens-de-servico/OS-1/registro.txt",
+        "linha",
+      ),
+    ).rejects.toThrow(MENSAGEM_SERVIDOR_NAO_CONFIGURADO);
+  });
 });
 
 describe("download autenticado da etiqueta do material", () => {

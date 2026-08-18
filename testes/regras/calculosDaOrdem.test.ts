@@ -1,13 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { DocumentReference } from "firebase/firestore";
-import { Material } from "@/dominio/entidades/Material";
 import { OrdemDeServico } from "@/dominio/entidades/OrdemDeServico";
 import { TipoProcessoProducao } from "@/dominio/enumeracoes";
+import { DimensoesDaUnidade, EspecificacaoDeGrade } from "@/dominio/objetosDeValor";
 import {
-  DimensoesDaUnidade,
-  DimensoesDoRolo,
-  EspecificacaoDeGrade,
-} from "@/dominio/objetosDeValor";
+  calcularMetragemQuadradaProduzida,
+  calcularRolosUtilizadosPorMetragem,
+} from "@/dominio/servicos/producao";
 
 const referencia = { id: "teste", path: "testes/teste" } as DocumentReference;
 
@@ -27,31 +26,34 @@ function criarOrdem(quantidadeTotal = 30): OrdemDeServico {
   });
 }
 
-describe("cálculos da Ordem de Serviço", () => {
-  it("calcula a área das grades realmente necessárias", () => {
-    expect(criarOrdem(25).calcularQuantidadeDeGrades()).toBe(3);
-    expect(criarOrdem(25).calcularMetragemQuadrada()).toBe(6);
+describe("cálculos derivados da produção", () => {
+  it("inicia sem uma cópia informativa de registro", () => {
+    expect(criarOrdem().registroMaisRecente).toBe("");
   });
 
-  it("calcula rolos somente pelo avanço da altura da grade", () => {
-    const material = new Material({
-      id: "material",
-      nome: "Adesivo",
-      marca: "Marca",
-      dimensoesDoRolo: new DimensoesDoRolo(106, 500),
-      referenciaUsuarioCriador: referencia,
-    });
-    expect(criarOrdem(30).calcularQuantidadeDeRolos(material)).toBe(2);
+  it("não persiste métricas derivadas na Ordem de Serviço", () => {
+    expect(criarOrdem(25)).not.toHaveProperty("metragemQuadradaCalculada");
+    expect(criarOrdem(25)).not.toHaveProperty("quantidadeRolosCalculada");
   });
 
-  it("rejeita uma grade mais larga que o rolo", () => {
-    const material = new Material({
-      id: "material",
-      nome: "Adesivo",
-      marca: "Marca",
-      dimensoesDoRolo: new DimensoesDoRolo(99, 5_000),
-      referenciaUsuarioCriador: referencia,
-    });
-    expect(() => criarOrdem().calcularQuantidadeDeRolos(material)).toThrow("largura da grade");
+  it("calcula a metragem pela área da unidade e pelas unidades impressas", () => {
+    expect(calcularMetragemQuadradaProduzida(10, 20, 0)).toBe(0);
+    expect(calcularMetragemQuadradaProduzida(10, 20, 1)).toBeCloseTo(0.02);
+    expect(calcularMetragemQuadradaProduzida(10, 20, 25)).toBeCloseTo(0.5);
+  });
+
+  it("arredonda uma única vez a área total do Material", () => {
+    expect(calcularRolosUtilizadosPorMetragem(0, 100, 500)).toBe(0);
+    expect(calcularRolosUtilizadosPorMetragem(5, 100, 500)).toBe(1);
+    expect(calcularRolosUtilizadosPorMetragem(5.01, 100, 500)).toBe(2);
+    const primeiraOrdem = calcularMetragemQuadradaProduzida(100, 250, 1);
+    const segundaOrdem = calcularMetragemQuadradaProduzida(100, 250, 1);
+    expect(calcularRolosUtilizadosPorMetragem(primeiraOrdem + segundaOrdem, 100, 500)).toBe(1);
+  });
+
+  it("rejeita dimensões e contadores inválidos", () => {
+    expect(() => calcularMetragemQuadradaProduzida(0, 20, 1)).toThrow("largura");
+    expect(() => calcularMetragemQuadradaProduzida(10, 20, -1)).toThrow("não negativo");
+    expect(() => calcularRolosUtilizadosPorMetragem(-1, 100, 500)).toThrow("não negativo");
   });
 });

@@ -196,6 +196,24 @@ export function interpretarLinhaDeRegistro(texto: string): LinhaDeRegistroInterp
   };
 }
 
+function instanteDoRegistro(linha: string): number | null {
+  const dataHora = interpretarLinhaDeRegistro(linha).dataHora;
+  const instante = Date.parse(dataHora);
+  return Number.isFinite(instante) ? instante : null;
+}
+
+/**
+ * Escolhe a cópia informativa mais recente sem alterar o arquivo de auditoria.
+ * Uma linha atual legada ou malformada não pode bloquear um registro novo válido.
+ */
+export function escolherRegistroMaisRecente(atual: string, candidato: string): string {
+  const instanteCandidato = instanteDoRegistro(candidato);
+  if (instanteCandidato === null) throw new Error("O registro recente não possui uma data válida.");
+  if (!atual.trim()) return candidato;
+  const instanteAtual = instanteDoRegistro(atual);
+  return instanteAtual === null || instanteCandidato >= instanteAtual ? candidato : atual;
+}
+
 function valorCsv(valor: string | number): string {
   return `"${String(valor).replaceAll('"', '""')}"`;
 }

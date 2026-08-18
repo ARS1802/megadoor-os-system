@@ -10,6 +10,7 @@ import {
   salvarConfiguracaoDoServidor,
 } from "@/infraestrutura/servidor/configuracaoDoServidor";
 import { servidorDeArquivos } from "@/infraestrutura/servicosDaAplicacao";
+import { MENSAGEM_SERVIDOR_NAO_CONFIGURADO } from "@/infraestrutura/servidor/ServidorDeArquivosFastApi";
 import { usarNavegacaoContextual } from "@/composables/usarNavegacaoContextual";
 
 const formulario = reactive({
@@ -28,9 +29,7 @@ async function testar(): Promise<void> {
   testando.value = true;
   const conectado = await servidorDeArquivos.verificarConexao();
   notificar(
-    conectado
-      ? "Servidor conectado."
-      : "Servidor indisponível. Verifique o endereço e o certificado.",
+    conectado ? "Servidor conectado." : MENSAGEM_SERVIDOR_NAO_CONFIGURADO,
     conectado ? "success" : "error",
   );
   testando.value = false;
@@ -39,6 +38,14 @@ async function testar(): Promise<void> {
 async function desconectar(): Promise<void> {
   await sessao.sair();
   await roteador.push({ name: "login" });
+}
+
+async function abrirCertificado(): Promise<void> {
+  try {
+    await servidorDeArquivos.abrirCertificado();
+  } catch (falha) {
+    notificar(falha instanceof Error ? falha.message : MENSAGEM_SERVIDOR_NAO_CONFIGURADO, "error");
+  }
 }
 </script>
 
@@ -66,9 +73,7 @@ async function desconectar(): Promise<void> {
       <div class="button-row">
         <button class="btn btn--secondary" :disabled="testando" @click="testar">
           {{ testando ? "Testando..." : "Testar conexão" }}</button
-        ><button class="btn btn--secondary" @click="servidorDeArquivos.abrirCertificado()">
-          Abrir Certificado
-        </button>
+        ><button class="btn btn--secondary" @click="abrirCertificado">Abrir Certificado</button>
       </div>
     </section>
     <section class="card">

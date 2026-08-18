@@ -8,6 +8,7 @@ import { usarSessao } from "@/composables/usarSessao";
 import { usarNotificacoes } from "@/composables/usarNotificacoes";
 import { usarNavegacaoContextual } from "@/composables/usarNavegacaoContextual";
 import { firebaseEstaConfigurado } from "@/infraestrutura/firebase/configuracaoFirebase";
+import { ErroServidorNaoConfigurado } from "@/infraestrutura/servidor/ServidorDeArquivosFastApi";
 import { repositorioDeUsuarios, casosDeUso } from "@/infraestrutura/servicosDaAplicacao";
 
 const formulario = reactive({
@@ -89,6 +90,7 @@ async function salvar(): Promise<void> {
     await roteador.push(destinoDeRetorno.value);
   } catch (falha) {
     erro.value = falha instanceof Error ? falha.message : "Não foi possível salvar o material.";
+    if (falha instanceof ErroServidorNaoConfigurado) notificar(falha.message, "error");
   } finally {
     enviando.value = false;
   }

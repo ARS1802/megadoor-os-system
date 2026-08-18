@@ -157,6 +157,8 @@ async function converterOrdens(
       nomeDoMaterial: material?.nome ?? "Material indisponível",
       caminhoImagemEtiquetaDoMaterial: material?.caminhoImagemEtiqueta,
       dimensoesDaUnidade: `${ordem.dimensoesDaUnidade.larguraEmCentimetros} × ${ordem.dimensoesDaUnidade.alturaEmCentimetros} cm`,
+      larguraDaUnidadeEmCentimetros: ordem.dimensoesDaUnidade.larguraEmCentimetros,
+      alturaDaUnidadeEmCentimetros: ordem.dimensoesDaUnidade.alturaEmCentimetros,
       larguraGrade: ordem.especificacaoDeGrade.larguraEmCentimetros,
       alturaGrade: ordem.especificacaoDeGrade.alturaEmCentimetros,
       unidadesPorGrade: ordem.especificacaoDeGrade.unidadesPorGrade,
@@ -167,8 +169,8 @@ async function converterOrdens(
         converterProcesso(processo, processosAnteriores.get(processo.tipo)),
       ),
       caminhoRegistro: ordem.caminhoRegistro,
+      registroMaisRecente: ordem.registroMaisRecente,
       caminhoObservacao: ordem.caminhoObservacao,
-      quantidadeRolosCalculada: ordem.quantidadeRolosCalculada,
       criadaEm: ordem.criadaEm,
     } satisfies ModeloOrdemNoPainel;
   });

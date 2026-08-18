@@ -19,6 +19,7 @@ import { usarSessao } from "@/composables/usarSessao";
 import { usarNotificacoes } from "@/composables/usarNotificacoes";
 import { usarNavegacaoContextual } from "@/composables/usarNavegacaoContextual";
 import { firebaseEstaConfigurado } from "@/infraestrutura/firebase/configuracaoFirebase";
+import { ErroServidorNaoConfigurado } from "@/infraestrutura/servidor/ServidorDeArquivosFastApi";
 import {
   criarLinhaDeConclusaoForcada,
   criarLinhaDeSubstituicaoDeArquivo,
@@ -110,8 +111,9 @@ async function hidratarMetadadosDoArquivo(processo = arquivo.value): Promise<voi
     if (processo.caminhoNoServidor !== caminho) return;
     processo.tamanhoEmBytes = metadados.tamanhoEmBytes;
     processo.modificadoEm = metadados.modificadoEm;
-  } catch {
+  } catch (falha) {
     // O Preview mantém “Não informado pelo servidor”; não inventamos uma data local.
+    if (falha instanceof ErroServidorNaoConfigurado) notificar(falha.message, "error");
   }
 }
 
@@ -127,10 +129,15 @@ async function carregarObservacaoDaOrdem(
       ? await servidorDeArquivos.lerTexto(caminho)
       : (observacaoDemonstrativa ?? "");
     if (versaoAtual === versaoDoCarregamentoDaObservacao) observacao.value = texto;
-  } catch {
+  } catch (falha) {
     if (versaoAtual !== versaoDoCarregamentoDaObservacao) return;
     observacao.value = "";
-    notificar("Não foi possível carregar observacao.txt.", "error");
+    notificar(
+      falha instanceof ErroServidorNaoConfigurado
+        ? falha.message
+        : "Não foi possível carregar observacao.txt.",
+      "error",
+    );
   } finally {
     if (versaoAtual === versaoDoCarregamentoDaObservacao) {
       carregandoObservacao.value = false;
@@ -325,18 +332,17 @@ async function aoEscolherArquivoParaReupload(evento: Event): Promise<void> {
     const nomeAnterior = anterior.nomeArquivo;
     const caminhoNovo = `${caminhoAnterior.slice(0, caminhoAnterior.lastIndexOf("/") + 1)}${novoArquivo.name}`;
     const modificadoEm = new Date();
-    acrescentarRegistroDemonstrativo(
-      ordem.value.id,
-      criarLinhaDeSubstituicaoDeArquivo({
-        idDaOperacao: crypto.randomUUID(),
-        nomeDoUsuario: sessao.usuarioAtual.value.nome,
-        processo: anterior.tipo,
-        nomeDoArquivoAnterior: nomeAnterior,
-        caminhoDoArquivoAnterior: caminhoAnterior,
-        nomeDoArquivoNovo: novoArquivo.name,
-        caminhoDoArquivoNovo: caminhoNovo,
-      }),
-    );
+    const linha = criarLinhaDeSubstituicaoDeArquivo({
+      idDaOperacao: crypto.randomUUID(),
+      nomeDoUsuario: sessao.usuarioAtual.value.nome,
+      processo: anterior.tipo,
+      nomeDoArquivoAnterior: nomeAnterior,
+      caminhoDoArquivoAnterior: caminhoAnterior,
+      nomeDoArquivoNovo: novoArquivo.name,
+      caminhoDoArquivoNovo: caminhoNovo,
+    });
+    acrescentarRegistroDemonstrativo(ordem.value.id, linha);
+    ordem.value.registroMaisRecente = linha;
     const pontoDaExtensao = novoArquivo.name.lastIndexOf(".");
     Object.assign(anterior, {
       nomeArquivo: novoArquivo.name,
@@ -399,6 +405,7 @@ async function forcarConclusao(): Promise<void> {
         },
       });
       acrescentarRegistroDemonstrativo(ordem.value.id, linha);
+      ordem.value.registroMaisRecente = linha;
       ordem.value.status = StatusOrdemDeServico.CONCLUIDA;
     }
     popupConclusao.value = false;

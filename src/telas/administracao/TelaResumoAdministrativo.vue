@@ -3,34 +3,86 @@ import { computed, onMounted } from "vue";
 import AppHeader from "@/componentes/AppHeader.vue";
 import TabelaOrdens from "@/componentes/TabelaOrdens.vue";
 import TabelaDeDados, { type ColunaTabela } from "@/componentes/TabelaDeDados.vue";
-import { StatusOrdemDeServico, StatusPresenca } from "@/dominio/enumeracoes";
+import {
+  ROTULOS_CARGOS,
+  StatusOrdemDeServico,
+  StatusPresenca,
+  TipoProcessoProducao,
+} from "@/dominio/enumeracoes";
 import { usarDados } from "@/composables/usarDados";
+import { usarSessao } from "@/composables/usarSessao";
 import { usarNavegacaoContextual } from "@/composables/usarNavegacaoContextual";
-import { resumirProducaoPorCandidato } from "@/aplicacao/servicos/resumirProducaoPorCandidato";
-import { modoDaAplicacao } from "@/infraestrutura/firebase/configuracaoFirebase";
+import { resumirProducaoPorCandidatoEMaterial } from "@/aplicacao/servicos/resumirProducaoPorCandidato";
+import {
+  firebaseEstaConfigurado,
+  modoDaAplicacao,
+} from "@/infraestrutura/firebase/configuracaoFirebase";
 import { criarPresencasDemonstrativas } from "@/infraestrutura/demonstracao/dadosDemonstrativos";
+import { casosDeUso } from "@/infraestrutura/servicosDaAplicacao";
+import { usarNotificacoes } from "@/composables/usarNotificacoes";
 
 const dados = usarDados();
+const { usuarioAtual } = usarSessao();
+const { notificar } = usarNotificacoes();
 const { comRetorno } = usarNavegacaoContextual();
-onMounted(() => void dados.carregar().catch(() => undefined));
+onMounted(() => void inicializarResumo());
 const recentes = computed(() =>
   dados.ordens.value.filter((item) => item.status !== StatusOrdemDeServico.CONCLUIDA).slice(0, 5),
 );
 const concluidas = computed(() =>
   dados.ordens.value.filter((item) => item.status === StatusOrdemDeServico.CONCLUIDA).slice(0, 5),
 );
-const producao = computed(() => resumirProducaoPorCandidato(dados.ordens.value));
+const producao = computed(() =>
+  resumirProducaoPorCandidatoEMaterial(
+    dados.ordens.value.map((ordem) => ({
+      candidatoId: ordem.candidatoId,
+      nomeDoCandidato: ordem.nomeDoCandidato,
+      materialId: ordem.materialId,
+      nomeDoMaterial: ordem.nomeDoMaterial,
+      larguraDaUnidadeEmCentimetros: ordem.larguraDaUnidadeEmCentimetros,
+      alturaDaUnidadeEmCentimetros: ordem.alturaDaUnidadeEmCentimetros,
+      unidadesImpressas:
+        ordem.processos.find((processo) => processo.tipo === TipoProcessoProducao.IMPRESSAO)
+          ?.unidadesProduzidas ?? 0,
+    })),
+  ),
+);
 const usuarios = criarPresencasDemonstrativas(modoDaAplicacao);
 const colunasProducao: ColunaTabela[] = [
   { chave: "candidato", rotulo: "Candidato" },
-  { chave: "metragem", rotulo: "Metragem produzida (m²)", alinhamento: "right" },
-  { chave: "rolos", rotulo: "Rolos utilizados", alinhamento: "right" },
+  { chave: "material", rotulo: "Material" },
+  { chave: "metragem", rotulo: "Metragem quadrada (m²)", alinhamento: "right" },
 ];
 const colunasUsuarios: ColunaTabela[] = [
   { chave: "status", rotulo: "Status" },
   { chave: "nome", rotulo: "Nome" },
   { chave: "cargo", rotulo: "Cargo" },
 ];
+
+async function inicializarResumo(): Promise<void> {
+  try {
+    await dados.carregar();
+  } catch {
+    return;
+  }
+  if (!firebaseEstaConfigurado) return;
+  try {
+    const resultado = await casosDeUso.recalcularRolosUtilizados.executar();
+    if (resultado.avisos.length > 0) {
+      notificar(
+        `O resumo foi carregado, mas o recálculo dos rolos teve ${resultado.avisos.length} aviso(s).`,
+        "warning",
+      );
+    }
+  } catch (falha) {
+    notificar(
+      falha instanceof Error
+        ? `Não foi possível recalcular os rolos: ${falha.message}`
+        : "Não foi possível recalcular os rolos dos Materiais.",
+      "error",
+    );
+  }
+}
 </script>
 
 <template>
@@ -49,7 +101,12 @@ const colunasUsuarios: ColunaTabela[] = [
       ></AppHeader
     >
     <div class="section-heading">
-      <h1>Resumo da produção</h1>
+      <div>
+        <h1>Resumo da produção</h1>
+        <p class="muted">
+          {{ usuarioAtual?.nome }} · {{ usuarioAtual ? ROTULOS_CARGOS[usuarioAtual.cargo] : "" }}
+        </p>
+      </div>
       <div class="section-actions">
         <RouterLink class="btn btn--secondary" :to="comRetorno({ name: 'novoMaterial' })"
           >Novo material</RouterLink
@@ -73,13 +130,11 @@ const colunasUsuarios: ColunaTabela[] = [
       </section>
       <section class="card">
         <h2>Produção por Ordem de Serviço</h2>
-        <p class="muted">
-          Totais consolidados por candidato considerando todas as suas Ordens de Serviço.
-        </p>
+        <p class="muted">Totais impressos consolidados por candidato e material.</p>
         <TabelaDeDados
           :colunas="colunasProducao"
           :linhas="producao"
-          rotulo="Produção consolidada por candidato"
+          rotulo="Produção consolidada por candidato e material"
           @ativar-linha="() => undefined"
           ><template #cell-metragem="{ valor }">{{
             Number(valor).toLocaleString("pt-BR", { maximumFractionDigits: 2 })

@@ -95,7 +95,7 @@ describe("criação coordenada da Ordem de Serviço", () => {
   it("conclui cada arquivo antes de iniciar a próxima etapa", async () => {
     const dependencias = preparar();
 
-    await dependencias.caso.executar(entrada());
+    const ordem = await dependencias.caso.executar(entrada());
 
     expect(dependencias.ordemDasOperacoes).toEqual([
       "diretorio",
@@ -107,6 +107,7 @@ describe("criação coordenada da Ordem de Serviço", () => {
     ]);
     expect(dependencias.criarComRelacionamentos).toHaveBeenCalledOnce();
     expect(dependencias.removerDiretorioDaOrdem).not.toHaveBeenCalled();
+    expect(ordem.registroMaisRecente).toBe("");
   });
 
   it("interrompe uploads posteriores antes de compensar uma falha", async () => {

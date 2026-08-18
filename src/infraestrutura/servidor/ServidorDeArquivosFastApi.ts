@@ -4,12 +4,18 @@ import type {
   MetadadosDoArquivoNoServidor,
   ServidorDeArquivosDaOrdem,
 } from "@/aplicacao/contratos/ServidorDeArquivosDaOrdem";
+import {
+  ErroServidorNaoConfigurado,
+  MENSAGEM_SERVIDOR_NAO_CONFIGURADO,
+} from "@/aplicacao/contratos/ServidorDeArquivosDaOrdem";
 import { calcularSha256DoArquivo } from "@/infraestrutura/arquivos/calcularSha256DoArquivo";
 import { enderecoBaseDoServidor } from "@/infraestrutura/servidor/configuracaoDoServidor";
 import { z } from "zod";
 
 const DETALHE_CONCORRENCIA_TEMPORARIA = "Tente novamente!";
 const TOTAL_DE_TENTATIVAS = 3;
+const TEMPO_LIMITE_DA_SAUDE_EM_MS = 1_500;
+export { ErroServidorNaoConfigurado, MENSAGEM_SERVIDOR_NAO_CONFIGURADO };
 
 const esquemaRespostaUpload = z.object({
   status: z.string(),
@@ -95,7 +101,10 @@ function mensagemDoDetalhe(detalhe: unknown): string | null {
 }
 
 export class ServidorDeArquivosFastApi implements ServidorDeArquivosDaOrdem {
-  constructor(private readonly obterIdDoUsuario: () => string | null) {}
+  constructor(
+    private readonly obterIdDoUsuario: () => string | null,
+    private readonly consultarSaudeInjetada?: () => Promise<boolean>,
+  ) {}
 
   private caminhoDaOrdem(id: string): string {
     if (!/^[A-Za-z0-9_-]+$/.test(id)) throw new Error("Identificador da OS inválido.");
@@ -189,11 +198,44 @@ export class ServidorDeArquivosFastApi implements ServidorDeArquivosDaOrdem {
     throw new Error("Estado de retry inalcançável.");
   }
 
-  private enviarRequisicaoComFormulario(
+  private async consultarSaude(): Promise<boolean> {
+    if (this.consultarSaudeInjetada) return this.consultarSaudeInjetada();
+
+    const controlador = new AbortController();
+    const temporizador = window.setTimeout(() => controlador.abort(), TEMPO_LIMITE_DA_SAUDE_EM_MS);
+    try {
+      const resposta = await fetch(`${enderecoBaseDoServidor()}/health`, {
+        method: "GET",
+        cache: "no-store",
+        signal: controlador.signal,
+      });
+      if (!resposta.ok) return false;
+      const dados = (await resposta.json()) as { status?: unknown };
+      return dados.status === "ok";
+    } catch {
+      return false;
+    } finally {
+      window.clearTimeout(temporizador);
+    }
+  }
+
+  private async exigirServidorValido(): Promise<void> {
+    let valido = false;
+    try {
+      valido = await this.consultarSaude();
+    } catch {
+      valido = false;
+    }
+    if (!valido) throw new ErroServidorNaoConfigurado();
+  }
+
+  private async enviarRequisicaoComFormulario(
     caminho: string,
     criarFormulario: () => FormData,
     requisicaoDeUpload = false,
+    servidorJaValidado = false,
   ): Promise<Response> {
+    if (!servidorJaValidado) await this.exigirServidorValido();
     return this.executarComRetry(
       () =>
         fetch(`${enderecoBaseDoServidor()}${caminho}`, {
@@ -211,6 +253,7 @@ export class ServidorDeArquivosFastApi implements ServidorDeArquivosDaOrdem {
   }
 
   private async enviarUpload(caminho: string, arquivo: File): Promise<RespostaUpload> {
+    await this.exigirServidorValido();
     const checksum = (await calcularSha256DoArquivo(arquivo)).toLowerCase();
     if (!/^[a-f0-9]{64}$/.test(checksum)) {
       throw new ErroIntegridadeDoArquivo("Não foi possível calcular um SHA-256 válido do arquivo.");
@@ -225,6 +268,7 @@ export class ServidorDeArquivosFastApi implements ServidorDeArquivosDaOrdem {
         formulario.set("checksum_sha256", checksum);
         return formulario;
       },
+      true,
       true,
     );
 
@@ -261,14 +305,7 @@ export class ServidorDeArquivosFastApi implements ServidorDeArquivosDaOrdem {
   }
 
   async verificarConexao(): Promise<boolean> {
-    try {
-      const resposta = await fetch(`${enderecoBaseDoServidor()}/health`);
-      if (!resposta.ok) return false;
-      const dados = (await resposta.json()) as { status?: string };
-      return dados.status === "ok";
-    } catch {
-      return false;
-    }
+    return this.consultarSaude();
   }
 
   async criarDiretorioDaOrdem(idDaOrdem: string): Promise<void> {
@@ -485,7 +522,20 @@ export class ServidorDeArquivosFastApi implements ServidorDeArquivosDaOrdem {
     });
   }
 
-  abrirCertificado(): void {
-    window.open(`${enderecoBaseDoServidor()}/docs`, "_blank", "noopener,noreferrer");
+  async abrirCertificado(): Promise<void> {
+    const novaAba = window.open("about:blank", "_blank");
+    try {
+      await this.exigirServidorValido();
+    } catch (falha) {
+      novaAba?.close();
+      throw falha;
+    }
+    const destino = `${enderecoBaseDoServidor()}/docs`;
+    if (novaAba) {
+      novaAba.opener = null;
+      novaAba.location.href = destino;
+      return;
+    }
+    window.open(destino, "_blank", "noopener,noreferrer");
   }
 }

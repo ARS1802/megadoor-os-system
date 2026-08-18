@@ -23,6 +23,8 @@ export interface ModeloOrdemNoPainel {
   nomeDoMaterial: string;
   caminhoImagemEtiquetaDoMaterial?: string;
   dimensoesDaUnidade: string;
+  larguraDaUnidadeEmCentimetros: number;
+  alturaDaUnidadeEmCentimetros: number;
   larguraGrade: number;
   alturaGrade: number;
   unidadesPorGrade: number;
@@ -31,8 +33,8 @@ export interface ModeloOrdemNoPainel {
   status: StatusOrdemDeServico;
   processos: ModeloProcesso[];
   caminhoRegistro: string;
+  registroMaisRecente: string;
   caminhoObservacao: string;
-  quantidadeRolosCalculada?: number | null;
   observacaoDemonstrativa?: string;
   criadaEm: Date;
 }

@@ -21,6 +21,7 @@
     "test:firestore": "npx --yes firebase-tools@15.26.0 emulators:exec --project demo-megadoor --only firestore \"vitest run --config vitest.regras-firestore.config.ts\"",
     "test:e2e": "playwright test",
     "test:e2e:real": "bash scripts/testar-e2e-real.sh",
+    "migrar:metricas-os": "bash scripts/migrar-metricas-ordens-real.sh",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
